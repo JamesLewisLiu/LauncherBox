@@ -10,8 +10,10 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Threading;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -33,9 +35,14 @@ namespace LauncherBox {
         internal static readonly string Root = Path.GetDirectoryName(Exe);
         internal static readonly string Profile = Path.Combine(Root, "Profiles", Sid);
         internal static readonly string Catalog = Path.Combine(Profile, "games.xml");
+        internal static readonly string Bindings = Path.Combine(Profile, "bindings.xml");
 
         internal static Window WindowFrom(string name) {
-            using (Stream input = Resource(name)) return (Window)XamlReader.Load(input);
+            Window window;
+            using (Stream input = Resource(name)) window = (Window)XamlReader.Load(input);
+            using (Stream theme = Resource("Theme.xaml"))
+                window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Load(theme));
+            return window;
         }
 
         internal static Stream Resource(string name) {
@@ -46,24 +53,33 @@ namespace LauncherBox {
 
         internal static List<Game> Load() {
             Directory.CreateDirectory(Profile);
-            if (!File.Exists(Catalog)) return new List<Game> {
-                new Game { Name = "Moon Bay Rally", Art = "rally.png" },
-                new Game { Name = "Starport Breakout", Art = "orbit.png" }
-            };
-            using (XmlReader xml = XmlReader.Create(Catalog, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) {
-                return (List<Game>)new XmlSerializer(typeof(List<Game>)).Deserialize(xml);
-            }
+            List<Game> games = Read<List<Game>>(Catalog) ?? new List<Game>();
+            games.RemoveAll(game => String.IsNullOrEmpty(game.Bat) && String.IsNullOrEmpty(game.Hash) &&
+                ((game.Name == "Moon Bay Rally" && game.Art == "rally.png") ||
+                 (game.Name == "Starport Breakout" && game.Art == "orbit.png")));
+            return games;
         }
 
         internal static void Save(List<Game> games) {
+            Write(Catalog, games);
+        }
+
+        internal static T Read<T>(string path) where T : class {
+            if (!File.Exists(path)) return null;
+            using (XmlReader xml = XmlReader.Create(path, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) {
+                return (T)new XmlSerializer(typeof(T)).Deserialize(xml);
+            }
+        }
+
+        internal static void Write<T>(string path, T value) {
             string temp = Path.Combine(Profile, Guid.NewGuid().ToString("N") + ".tmp");
             try {
                 using (FileStream file = File.Create(temp)) {
-                    new XmlSerializer(typeof(List<Game>)).Serialize(file, games);
+                    new XmlSerializer(typeof(T)).Serialize(file, value);
                     file.Flush(true);
                 }
-                if (File.Exists(Catalog)) File.Replace(temp, Catalog, null);
-                else File.Move(temp, Catalog);
+                if (File.Exists(path)) File.Replace(temp, path, null);
+                else File.Move(temp, path);
             } finally { if (File.Exists(temp)) File.Delete(temp); }
         }
 
@@ -100,9 +116,6 @@ namespace LauncherBox {
         }
 
         internal static BitmapImage Image(string key) {
-            if (key == "rally.png" || key == "orbit.png") {
-                using (Stream stream = Resource(key)) return Decode(stream);
-            }
             Guid id;
             if (String.IsNullOrEmpty(key) || !Guid.TryParseExact(Path.GetFileNameWithoutExtension(key), "N", out id)
                 || key != id.ToString("N") + ".png") return null;
@@ -158,6 +171,8 @@ namespace LauncherBox {
             if (profile.Exists) RequireProtectedEntry(profile, ChangeContents);
             FileInfo catalog = new FileInfo(Store.Catalog);
             if (catalog.Exists) RequireProtectedEntry(catalog, ChangeContents);
+            FileInfo bindings = new FileInfo(Store.Bindings);
+            if (bindings.Exists) RequireProtectedEntry(bindings, ChangeContents);
         }
 
         private static dynamic Service() {
@@ -205,9 +220,12 @@ namespace LauncherBox {
 
     internal sealed class Launcher {
         internal readonly Window Win = Store.WindowFrom("Main.xaml");
+        internal readonly KeyMap Bindings;
         internal List<Game> Games;
         internal int Index;
         private readonly bool logon;
+        private Editor editor;
+        private DeviceInput devices;
         private Process running;
         private FileStream batchLock;
         private bool full;
@@ -217,33 +235,74 @@ namespace LauncherBox {
         internal Launcher(bool automatic) {
             logon = automatic;
             Games = Store.Load();
+            Bindings = new KeyMap();
             Find<Button>("Previous").Click += delegate { Step(-1); };
             Find<Button>("Next").Click += delegate { Step(1); };
             Find<Button>("Play").Click += delegate { Launch(); };
             Find<Button>("Manage").Click += delegate { Manage(); };
-            Find<Button>("Screen").Click += delegate { Fullscreen(); };
-            Find<Button>("Quit").Click += delegate { Win.Close(); };
             Find<Button>("Manage").Visibility = logon ? Visibility.Collapsed : Visibility.Visible;
             Win.PreviewKeyDown += OnKey;
-            Win.Closed += delegate { if (batchLock != null) batchLock.Dispose(); if (running != null) running.Dispose(); };
-            if (logon) Fullscreen();
+            Win.SourceInitialized += delegate {
+                HwndSource source = HwndSource.FromHwnd(new WindowInteropHelper(Win).Handle);
+                devices = new DeviceInput(source, HasInputFocus, RouteInput);
+            };
+            Win.Closed += delegate {
+                if (devices != null) devices.Dispose();
+                Release();
+            };
+            Fullscreen();
             Draw(null);
         }
 
         private void OnKey(object sender, KeyEventArgs e) {
-            if ((Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Control)) != 0) return;
-            if (e.Key == Key.Left || e.Key == Key.Right) Step(e.Key == Key.Left ? -1 : 1);
-            else if (e.Key == Key.F11 || (e.Key == Key.Escape && full)) { if (!e.IsRepeat) Fullscreen(); }
-            else if (e.Key == Key.F2 && !logon) { if (!e.IsRepeat) Manage(); }
-            else if (e.Key == Key.Enter) {
+            Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Alt) {
+                e.Handled = true;
+                if (!e.IsRepeat) Fullscreen();
+                return;
+            }
+            if (e.Key == Key.System || (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Windows)) != 0) return;
+            if (key == Key.F11 || key == Key.Escape) {
+                e.Handled = true;
+                if (!e.IsRepeat) Act(key == Key.F11 ? LauncherAction.Fullscreen : LauncherAction.Exit);
+                return;
+            }
+            if (key == Key.Tab) { showTabFocus = true; return; }
+            if (key == Key.Enter) {
                 // Keep normal keyboard activation when Tab has moved focus to another button.
                 Button button = Keyboard.FocusedElement as Button;
-                if (button != null && button.IsKeyboardFocused && KeyboardNavigation.GetIsTabStop(button) &&
-                    button != Find<Button>("Play") && showTabFocus) return;
-                if (!e.IsRepeat) Launch();
+                if (button != null && showTabFocus) return;
             }
-            else { if (e.Key == Key.Tab) showTabFocus = true; return; }
+            InputBinding binding = Bindings.Match(InputSignal.KeyboardKey(key));
+            if (binding == null) return;
             e.Handled = true;
+            if (!e.IsRepeat || binding.Action == LauncherAction.Previous || binding.Action == LauncherAction.Next)
+                Act(binding.Action);
+        }
+
+        private bool HasInputFocus() {
+            return running == null && (editor == null ? Win.IsActive : editor.IsActive);
+        }
+
+        private bool RouteInput(InputSignal signal) {
+            if (!HasInputFocus()) return false;
+            if (editor != null) return editor.Capture(signal);
+            InputBinding binding = Bindings.Match(signal);
+            if (binding == null) return false;
+            if (binding.Action == LauncherAction.Settings) Win.Dispatcher.BeginInvoke(new Action(Manage));
+            else Act(binding.Action);
+            return true;
+        }
+
+        private void Act(LauncherAction action) {
+            switch (action) {
+                case LauncherAction.Previous: Step(-1); break;
+                case LauncherAction.Next: Step(1); break;
+                case LauncherAction.Play: Launch(); break;
+                case LauncherAction.Settings: Manage(); break;
+                case LauncherAction.Fullscreen: Fullscreen(); break;
+                case LauncherAction.Exit: Win.Close(); break;
+            }
         }
         private bool showTabFocus;
         private void Step(int n) {
@@ -266,29 +325,30 @@ namespace LauncherBox {
                 Win.WindowState = previousState;
             }
             full = !full;
-            Find<Button>("Screen").Content = full ? "Exit Fullscreen" : "Fullscreen";
         }
 
         internal void Draw(string notice) {
             Index = Math.Max(0, Math.Min(Index, Games.Count - 1));
             Game game = Games.Count > 0 ? Games[Index] : null;
             bool ready = game != null && !String.IsNullOrEmpty(game.Bat);
-            Find<TextBlock>("Counter").Text = String.Format("{0:D2}  /  {1:D2}", game == null ? 0 : Index + 1, Games.Count);
-            Find<TextBlock>("GameName").Text = game != null ? game.Name : "No games in your library";
-            Find<TextBlock>("LibraryCount").Text = "Games: " + Games.Count;
-            Find<Button>("Previous").IsEnabled = Find<Button>("Next").IsEnabled = Games.Count > 1;
-            Find<Button>("Play").Content = ready ? "▶   Play" : (game == null ? "Add Game" : "Choose a BAT File");
+            Find<TextBlock>("GameName").Text = game != null ? game.Name : "";
+            Find<TextBlock>("GameName").Visibility = game == null ? Visibility.Collapsed : Visibility.Visible;
+            Find<TextBlock>("EmptyLibrary").Text = logon ? "No games." : "No games. Open Settings to add a game.";
+            Find<TextBlock>("EmptyLibrary").Visibility = game == null ? Visibility.Visible : Visibility.Collapsed;
+            Find<Button>("Previous").Visibility = Find<Button>("Next").Visibility = Games.Count > 1 ? Visibility.Visible : Visibility.Hidden;
+            Find<Button>("Play").Content = ready ? "Play" : "Choose a BAT File";
+            Find<Button>("Play").Visibility = game != null && (ready || !logon) ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("Play").IsEnabled = running == null && (ready || !logon);
             try { Find<Image>("Cover").Source = Store.Image(game == null ? null : game.Art); }
-            catch (Exception) { Find<Image>("Cover").Source = null; notice = "Could not load the screenshot. Choose it again in Manage Games."; }
-            Find<TextBlock>("EmptyCover").Visibility = Find<Image>("Cover").Source == null ? Visibility.Visible : Visibility.Collapsed;
-            Find<TextBlock>("Status").Text = notice ?? (running != null ? "The batch file is running." : ready ? "Press Enter to play" :
-                logon ? "Open LauncherBox manually to assign a BAT file to this game." : "Choose a local .bat file to play.");
+            catch (Exception) { Find<Image>("Cover").Source = null; notice = "Could not load the screenshot. Choose it again in Settings."; }
+            Find<TextBlock>("Status").Text = notice ?? "";
         }
 
         private void Manage() {
-            if (logon) return;
-            new Editor(this).Show();
+            if (logon || editor != null) return;
+            editor = new Editor(this);
+            try { editor.Show(); }
+            finally { editor = null; }
             Draw(null);
         }
 
@@ -299,7 +359,7 @@ namespace LauncherBox {
             try {
                 batchLock = Store.OpenBatch(game.Bat);
                 if (!String.Equals(Store.Digest(batchLock), game.Hash, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("The BAT file has changed. Open LauncherBox manually, select the file again in Manage Games, and save.");
+                    throw new InvalidDataException("The BAT file has changed. Open LauncherBox manually, select the file again in Settings, and save.");
                 ProcessStartInfo info = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
                 info.UseShellExecute = false;
                 info.WorkingDirectory = Path.GetDirectoryName(game.Bat);
@@ -318,6 +378,7 @@ namespace LauncherBox {
                     }));
                 };
                 running = process;
+                if (devices != null) devices.ReleaseForGame();
                 process.Start();
                 beforeGame = Win.WindowState;
                 Win.WindowState = WindowState.Minimized;
@@ -343,6 +404,10 @@ namespace LauncherBox {
         private bool binding;
         private bool dirty;
         private bool autoEnabled;
+        private InputSource inputSource;
+        private LauncherAction? awaiting;
+        private readonly Dictionary<InputSource, Button> sourceButtons = new Dictionary<InputSource, Button>();
+        internal bool IsActive { get { return win.IsActive; } }
         private T Find<T>(string id) where T : class { return (T)win.FindName(id); }
         internal Editor(Launcher owner) {
             launcher = owner;
@@ -379,16 +444,126 @@ namespace LauncherBox {
                 AutoStatus();
             }); };
             Find<Button>("Done").Click += delegate { win.Close(); };
+            Find<Button>("GamesTab").Click += delegate { ShowControls(false); };
+            Find<Button>("ControlsTab").Click += delegate { ShowControls(true); };
+            AddSource("KeyboardSource", InputSource.Keyboard);
+            AddSource("DirectInputSource", InputSource.DirectInput);
+            AddSource("XInputSource", InputSource.XInput);
+            AddSource("MidiSource", InputSource.Midi);
+            Find<Button>("ResetBindings").Click += delegate { Guard(delegate {
+                launcher.Bindings.Reset(inputSource);
+                awaiting = null;
+                DrawBindings("Defaults restored.");
+            }); };
+            win.PreviewKeyDown += CaptureKey;
             win.Closing += delegate(object s, CancelEventArgs e) { e.Cancel = !Discard(); };
             Rebind(launcher.Games.Count == 0 ? null : launcher.Games[launcher.Index]);
             AutoStatus();
+            ShowControls(false);
+        }
+
+        private void AddSource(string id, InputSource source) {
+            Button button = Find<Button>(id);
+            sourceButtons.Add(source, button);
+            button.Click += delegate {
+                inputSource = source;
+                awaiting = null;
+                DrawBindings(null);
+            };
+        }
+
+        private void SelectButton(Button button, bool selected) {
+            if (selected) button.SetResourceReference(Control.ForegroundProperty, "Accent");
+            else button.ClearValue(Control.ForegroundProperty);
+        }
+
+        private void ShowControls(bool controls) {
+            awaiting = null;
+            Find<Grid>("GamesPane").Visibility = controls ? Visibility.Collapsed : Visibility.Visible;
+            Find<Grid>("ControlsPane").Visibility = controls ? Visibility.Visible : Visibility.Collapsed;
+            SelectButton(Find<Button>("GamesTab"), !controls);
+            SelectButton(Find<Button>("ControlsTab"), controls);
+            if (controls) DrawBindings(null);
+        }
+
+        private void DrawBindings(string notice) {
+            foreach (KeyValuePair<InputSource, Button> source in sourceButtons)
+                SelectButton(source.Value, source.Key == inputSource);
+            StackPanel rows = Find<StackPanel>("BindingRows");
+            rows.Children.Clear();
+            foreach (LauncherAction action in KeyMap.Actions) {
+                LauncherAction target = action;
+                string label = KeyMap.Label(action);
+                InputBinding binding = launcher.Bindings.Get(action, inputSource);
+                DockPanel row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+                Button clear = new Button { Content = "Clear", IsEnabled = binding != null };
+                AutomationProperties.SetName(clear, "Clear " + label);
+                DockPanel.SetDock(clear, Dock.Right);
+                clear.Click += delegate { Guard(delegate {
+                    launcher.Bindings.Set(target, inputSource, null);
+                    awaiting = null;
+                    DrawBindings(null);
+                }); };
+                row.Children.Add(clear);
+                TextBlock name = new TextBlock { Text = label, Width = 145, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(name, Dock.Left);
+                row.Children.Add(name);
+                TextBlock caption = new TextBlock {
+                    Text = binding == null ? "Bind" : binding.Label,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Button assign = new Button {
+                    Content = caption, ToolTip = "Bind " + label, HorizontalContentAlignment = HorizontalAlignment.Left
+                };
+                AutomationProperties.SetName(assign, "Bind " + label + (binding == null ? "" : ", " + binding.Label));
+                assign.Click += delegate {
+                    awaiting = target;
+                    Find<TextBlock>("BindingStatus").Text = "Send an input for " + label + ". Esc cancels.";
+                };
+                row.Children.Add(assign);
+                rows.Children.Add(row);
+            }
+            Find<TextBlock>("BindingStatus").Text = notice ??
+                (inputSource == InputSource.Keyboard ? "F11, Alt+Enter, Esc and Alt+F4 are always available." : "");
+        }
+
+        private void CaptureKey(object sender, KeyEventArgs e) {
+            if (e.Key == Key.Escape) {
+                e.Handled = true;
+                if (e.IsRepeat) return;
+                if (awaiting.HasValue) {
+                    awaiting = null;
+                    DrawBindings("Binding canceled.");
+                } else win.Close();
+                return;
+            }
+            if (!awaiting.HasValue || inputSource != InputSource.Keyboard || e.Key == Key.System ||
+                (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Windows)) != 0) return;
+            e.Handled = true;
+            if (e.IsRepeat) return;
+            if (e.Key == Key.F11 || e.Key == Key.Tab || e.Key == Key.None || e.Key == Key.ImeProcessed || e.Key == Key.DeadCharProcessed) {
+                Find<TextBlock>("BindingStatus").Text = "Choose another key. This key is reserved.";
+                return;
+            }
+            Capture(InputSignal.KeyboardKey(e.Key));
+        }
+
+        internal bool Capture(InputSignal signal) {
+            if (!awaiting.HasValue || signal.Source != inputSource) return false;
+            LauncherAction target = awaiting.Value;
+            awaiting = null;
+            Guard(delegate {
+                launcher.Bindings.Set(target, inputSource, signal);
+                DrawBindings("Bound " + KeyMap.Label(target) + ".");
+            });
+            return true;
         }
         private void Guard(Action action) {
             try { action(); }
             catch (Exception ex) { MessageBox.Show(win, ex.Message, "Action Failed", MessageBoxButton.OK, MessageBoxImage.Warning); }
         }
         private bool Discard() {
-            return !dirty || MessageBox.Show(win, "Discard unsaved changes to this game?", "Manage Games", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+            return !dirty || MessageBox.Show(win, "Discard unsaved changes to this game?", "Settings", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
         }
         private void Rebind(Game value) {
             binding = true;
@@ -405,8 +580,9 @@ namespace LauncherBox {
             if (game != null) launcher.Index = launcher.Games.IndexOf(game);
             Find<TextBox>("TitleBox").Text = game == null ? "" : game.Name;
             Find<TextBox>("BatBox").Text = game == null ? "" : game.Bat;
-            Find<TextBox>("ImageBox").Text = game == null || String.IsNullOrEmpty(game.Art) ? "" :
-                game.Art == "rally.png" || game.Art == "orbit.png" ? "Built-in screenshot" : "Saved screenshot";
+            Guid screenshot;
+            Find<TextBox>("ImageBox").Text = game != null && Guid.TryParseExact(Path.GetFileNameWithoutExtension(game.Art), "N", out screenshot) ?
+                "Saved screenshot" : "";
             Find<Button>("Remove").IsEnabled = game != null;
             binding = false;
             dirty = false;

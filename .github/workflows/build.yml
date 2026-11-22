@@ -18,27 +18,9 @@ jobs:
       - name: Compile LauncherBox for Windows x64
         shell: cmd
         run: call Build.cmd
-      - name: Check portable profile location
+      - name: Check fullscreen, input initialization, and portable settings
         shell: powershell
-        run: |
-          $portable = Join-Path $env:RUNNER_TEMP 'LauncherBox portable check'
-          New-Item -ItemType Directory -Path $portable | Out-Null
-          $exe = Join-Path $portable 'LauncherBox.exe'
-          Copy-Item 'dist/LauncherBox.exe' -Destination $exe
-          $store = [Reflection.Assembly]::LoadFile($exe).GetType('LauncherBox.Store', $true)
-          $flags = [Reflection.BindingFlags]'NonPublic, Static'
-          $load = $store.GetMethod('Load', $flags)
-          $games = $load.Invoke($null, $null)
-          $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-          if ($games.Count -ne 2 -or !(Test-Path (Join-Path $portable "Profiles\$sid") -PathType Container)) {
-            throw 'LauncherBox did not load its library from the portable folder.'
-          }
-          $games[0].Name = 'Portable test game'
-          $store.GetMethod('Save', $flags).Invoke($null, (,$games))
-          $saved = $load.Invoke($null, $null)
-          if ($saved[0].Name -ne 'Portable test game' -or !(Test-Path (Join-Path $portable "Profiles\$sid\games.xml") -PathType Leaf)) {
-            throw 'LauncherBox did not save its library in the portable folder.'
-          }
+        run: .\tests\WindowsSmoke.ps1
       - uses: actions/upload-artifact@v6
         with:
           name: LauncherBox-Portable-Windows-x64
