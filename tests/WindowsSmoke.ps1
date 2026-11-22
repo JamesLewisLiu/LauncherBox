@@ -42,7 +42,7 @@ function Wait-ForWindow([scriptblock]$Condition, [string]$Description) {
 }
 
 $sqlite = $assembly.GetType('LauncherBox.Sqlite', $true)
-$lock = [Activator]::CreateInstance($sqlite, $instance, $null, @($dbPath), $null)
+$lock = $sqlite.GetConstructor($instance, $null, @([string]), $null).Invoke(@("$dbPath"))
 $execute = $sqlite.GetMethod('Execute', $instance)
 $execute.Invoke($lock, @('BEGIN EXCLUSIVE', [object[]]@()))
 $bindingsField = $launcherType.GetField('Bindings', $instance)
