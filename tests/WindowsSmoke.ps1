@@ -260,6 +260,9 @@ try {
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $manualMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the shared Launch BAT to run without arguments'
+    if ($keyboardWindow.FindName('Status').Text -ne 'The batch file has finished.') {
+        throw 'The shared Launch BAT did not exit successfully.'
+    }
 } finally {
     $keyboardWindow.Close()
 }
@@ -348,3 +351,4 @@ foreach ($schema in 1, 2) {
     Move-Item $dbPath (Join-Path $portable "upgraded-$schema.db")
 }
 Write-Host 'Verified fullscreen, native inputs, arrow navigation, shared BAT arguments, independent Setting BAT, and database upgrades.'
+exit 0
