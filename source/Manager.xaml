@@ -66,7 +66,7 @@
     <Grid x:Name="ControlsPane" Grid.Row="2" Visibility="Collapsed">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <StackPanel Orientation="Horizontal">
-        <Button x:Name="KeyboardSource" Content="Native keyboard"/>
+        <Button x:Name="KeyboardSource" Content="Naive keyboard"/>
         <Button x:Name="DirectInputSource" Content="DirectInput"/>
         <Button x:Name="XInputSource" Content="XInput"/>
         <Button x:Name="MidiSource" Content="MIDI"/>

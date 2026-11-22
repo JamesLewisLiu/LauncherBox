@@ -10,7 +10,7 @@ LauncherBox opens fullscreen with an empty library. Open the gear menu or press 
 
 **← / →** browse, **Enter** plays, and **F2** opens settings by default. **F11** or **Alt+Enter** toggles fullscreen. **Esc** or **Alt+F4** exits from the library.
 
-In **Settings → Controls**, select **Native keyboard**, **DirectInput**, **XInput**, or **MIDI**, then select the binding next to an action and send an input. Each action has one binding per input type. Changes save immediately. **Esc** cancels capture, and **Clear** removes a binding. Leave sticks and pedals at rest when connecting a DirectInput device.
+In **Settings → Controls**, select **Naive keyboard**, **DirectInput**, **XInput**, or **MIDI**, then select the binding next to an action and send an input. Naive keyboard reads Windows virtual keys while the launcher has focus. Each action has one binding per input type. Changes save immediately. **Esc** cancels capture, and **Clear** removes a binding. Leave sticks and pedals at rest when connecting a DirectInput device.
 
 MIDI supports note strikes, control-change values crossing 64, and pitch bends in either direction. A zero-velocity Note On is ignored. MIDI bindings include the port and channel. XInput bindings follow the controller slot.
 

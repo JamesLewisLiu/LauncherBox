@@ -268,16 +268,16 @@ namespace LauncherBox {
                 return;
             }
             if (key == Key.Tab) { showTabFocus = true; return; }
-            if (key == Key.Enter) {
-                // Keep normal keyboard activation when Tab has moved focus to another button.
-                Button button = Keyboard.FocusedElement as Button;
-                if (button != null && showTabFocus) return;
-            }
-            InputBinding binding = Bindings.Match(InputSignal.KeyboardKey(key));
-            if (binding == null) return;
-            e.Handled = true;
-            if (!e.IsRepeat || binding.Action == LauncherAction.Previous || binding.Action == LauncherAction.Next)
-                Act(binding.Action);
+            // Key bindings use the Win32 state poll. Keep the focused button's normal Tab navigation.
+            if ((key == Key.Enter || key == Key.Space) && !HasButtonFocus()) e.Handled = true;
+        }
+
+        private bool HasButtonFocus() {
+            return showTabFocus && Keyboard.FocusedElement is Button;
+        }
+
+        internal void BeginCapture() {
+            if (devices != null) devices.ResetHeld();
         }
 
         private bool HasInputFocus() {
@@ -287,6 +287,8 @@ namespace LauncherBox {
         private bool RouteInput(InputSignal signal) {
             if (!HasInputFocus()) return false;
             if (editor != null) return editor.Capture(signal);
+            if (signal.Source == InputSource.Keyboard && HasButtonFocus() &&
+                (signal.Code == Key.Enter.ToString() || signal.Code == Key.Space.ToString())) return false;
             InputBinding binding = Bindings.Match(signal);
             if (binding == null) return false;
             if (binding.Action == LauncherAction.Settings) Win.Dispatcher.BeginInvoke(new Action(Manage));
@@ -517,6 +519,7 @@ namespace LauncherBox {
                 };
                 AutomationProperties.SetName(assign, "Bind " + label + (binding == null ? "" : ", " + binding.Label));
                 assign.Click += delegate {
+                    launcher.BeginCapture();
                     awaiting = target;
                     Find<TextBlock>("BindingStatus").Text = "Send an input for " + label + ". Esc cancels.";
                 };
@@ -540,12 +543,8 @@ namespace LauncherBox {
             if (!awaiting.HasValue || inputSource != InputSource.Keyboard || e.Key == Key.System ||
                 (Keyboard.Modifiers & (ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Windows)) != 0) return;
             e.Handled = true;
-            if (e.IsRepeat) return;
-            if (e.Key == Key.F11 || e.Key == Key.Tab || e.Key == Key.None || e.Key == Key.ImeProcessed || e.Key == Key.DeadCharProcessed) {
+            if (!e.IsRepeat && NaiveKeyboard.Reserved(e.Key))
                 Find<TextBlock>("BindingStatus").Text = "Choose another key. This key is reserved.";
-                return;
-            }
-            Capture(InputSignal.KeyboardKey(e.Key));
         }
 
         internal bool Capture(InputSignal signal) {

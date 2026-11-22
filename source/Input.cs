@@ -142,6 +142,7 @@ namespace LauncherBox {
                 nextScan = now.AddSeconds(2);
             }
             List<InputSignal> pressed = new List<InputSignal>();
+            NaiveKeyboard.Read(pressed);
             XInput.Read(pressed);
             direct.Read(pressed);
             HashSet<string> current = new HashSet<string>();
@@ -165,10 +166,14 @@ namespace LauncherBox {
         }
 
         internal void ReleaseForGame() {
-            held = null;
+            ResetHeld();
             direct.Unacquire();
             midi.Suspend();
             nextScan = DateTime.MinValue;
+        }
+
+        internal void ResetHeld() {
+            held = null;
         }
 
         public void Dispose() {
@@ -176,6 +181,32 @@ namespace LauncherBox {
             if (!window.IsDisposed) window.RemoveHook(OnMessage);
             direct.Dispose();
             midi.Dispose();
+        }
+    }
+
+    internal static class NaiveKeyboard {
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int virtualKey);
+
+        private static bool IsDown(int virtualKey) {
+            return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+        }
+
+        internal static void Read(List<InputSignal> pressed) {
+            // Keep Windows shortcuts and other modified keystrokes out of launcher bindings.
+            if (IsDown(0x11) || IsDown(0x12) || IsDown(0x5B) || IsDown(0x5C)) return;
+            for (int virtualKey = 8; virtualKey <= 0xFE; virtualKey++) {
+                if (!IsDown(virtualKey)) continue;
+                Key key = KeyInterop.KeyFromVirtualKey(virtualKey);
+                if (!Reserved(key)) pressed.Add(InputSignal.KeyboardKey(key));
+            }
+        }
+
+        internal static bool Reserved(Key key) {
+            return key == Key.None || key == Key.Escape || key == Key.F11 || key == Key.Tab ||
+                key == Key.LeftShift || key == Key.RightShift || key == Key.LeftCtrl || key == Key.RightCtrl ||
+                key == Key.LeftAlt || key == Key.RightAlt || key == Key.LWin || key == Key.RWin ||
+                key == Key.System || key == Key.ImeProcessed || key == Key.DeadCharProcessed;
         }
     }
 
