@@ -341,6 +341,10 @@ namespace LauncherBox {
                 case LauncherAction.Previous: Step(-1); break;
                 case LauncherAction.Next: Step(1); break;
                 case LauncherAction.Play: RunGameScript(false); break;
+                case LauncherAction.GameSetting:
+                    // The game editor can open a modal window, so let the input poll return first.
+                    Win.Dispatcher.BeginInvoke(new Action(() => RunGameScript(true)));
+                    break;
                 case LauncherAction.Settings: Manage(); break;
                 case LauncherAction.Fullscreen: Fullscreen(); break;
                 case LauncherAction.Exit: Win.Close(); break;
@@ -411,7 +415,7 @@ namespace LauncherBox {
         }
 
         private async void RunGameScript(bool settings) {
-            if (running != null || editor != null || Bindings == null) return;
+            if (closed || running != null || editor != null || Bindings == null) return;
             if (Games.Count == 0) { Manage(); return; }
             Game game = Games[Index];
             string path = settings ? game.SettingsBat : game.Bat;

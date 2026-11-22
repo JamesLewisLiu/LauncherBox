@@ -220,15 +220,39 @@ try {
     if ((Test-Path $startMarker) -or (Get-Content $settingMarker -Raw).Trim() -ne '""') {
         throw 'Clicking Setting should call only the Setting BAT without launch arguments.'
     }
+    Remove-Item $settingMarker
+
+    $actionType = $assembly.GetType('LauncherBox.LauncherAction', $true)
+    $gameSettingAction = [Enum]::Parse($actionType, 'GameSetting')
+    $keyboardSource = [Enum]::Parse($assembly.GetType('LauncherBox.InputSource', $true), 'Keyboard')
+    $signalForKey = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static)
+    $settingSignal = $signalForKey.Invoke($null, @([System.Windows.Input.Key]::S))
+    $currentMap = $bindingsField.GetValue($keyboardLauncher)
+    $mappingType = $currentMap.GetType()
+    if ($mappingType.GetField('Actions', $static).GetValue($null) -notcontains $gameSettingAction) {
+        throw 'Game Setting is missing from the bindable actions.'
+    }
+    $mappingType.GetMethod('Set', $instance).Invoke($currentMap, @($gameSettingAction, $keyboardSource, $settingSignal))
+    $savedMap = [Activator]::CreateInstance($mappingType, $true)
+    if ($mappingType.GetMethod('Match', $instance).Invoke($savedMap, @($settingSignal)).Action -ne $gameSettingAction) {
+        throw 'The Game Setting binding did not persist.'
+    }
+    $routeInput = $launcherType.GetMethod('RouteInput', $instance)
+    $keyboardWindow.Activate() | Out-Null
+    Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus for Game Setting'
+    if (!$routeInput.Invoke($keyboardLauncher, @($settingSignal))) { throw 'The Game Setting input was not handled.' }
+    Wait-ForWindow { (Test-Path $settingMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the Game Setting binding to run its BAT'
+    if ((Test-Path $startMarker) -or (Get-Content $settingMarker -Raw).Trim() -ne '""') {
+        throw 'The Game Setting binding should call only the Setting BAT without launch arguments.'
+    }
 
     $next = $keyboardWindow.FindName('Next')
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $fullscreen.Invoke($keyboardLauncher, $null)
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
-    $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
-        $null, @([System.Windows.Input.Key]::Enter))
-    if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
+    $keyboardSignal = $signalForKey.Invoke($null, @([System.Windows.Input.Key]::Enter))
+    if (!$routeInput.Invoke($keyboardLauncher, @($keyboardSignal))) {
         throw 'The default START input was not handled.'
     }
     if ($null -eq $running.GetValue($keyboardLauncher) -or $keyboardWindow.WindowState -ne 'Normal') {
