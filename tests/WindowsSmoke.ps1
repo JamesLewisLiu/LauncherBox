@@ -204,7 +204,11 @@ try {
     $setting = $keyboardWindow.FindName('GameSetting')
     $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
+    if ($null -eq $running.GetValue($keyboardLauncher) -or $keyboardWindow.WindowState -ne 'Maximized') {
+        throw 'Launching a game should keep the fullscreen launcher window maximized.'
+    }
     Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the screenshot to run the Launch BAT'
+    if ($keyboardWindow.WindowState -ne 'Maximized') { throw 'The launcher should return to fullscreen after the game.' }
     if ((Get-Content $startMarker -Raw).Trim() -ne '"Band & Stage" "literal %TEMP%" "!LIVE!"') {
         throw 'The BAT did not receive the launch arguments literally and in order.'
     }
@@ -219,6 +223,7 @@ try {
 
     $next = $keyboardWindow.FindName('Next')
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
+    $fullscreen.Invoke($keyboardLauncher, $null)
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
     $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
@@ -226,7 +231,11 @@ try {
     if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
         throw 'The default START input was not handled.'
     }
+    if ($null -eq $running.GetValue($keyboardLauncher) -or $keyboardWindow.WindowState -ne 'Normal') {
+        throw 'Launching a game should keep the windowed launcher open.'
+    }
     Wait-ForWindow { (Test-Path $zeroMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the shared Launch BAT with argument 0'
+    if ($keyboardWindow.WindowState -ne 'Normal') { throw 'The launcher should return to windowed mode after the game.' }
     if (Test-Path $startMarker) { throw 'The second game ran with the first game arguments.' }
 
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))

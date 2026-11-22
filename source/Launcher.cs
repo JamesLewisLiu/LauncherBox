@@ -451,7 +451,7 @@ namespace LauncherBox {
                 process.Start();
                 Log.Info(action + ": BAT process started.");
                 beforeGame = Win.WindowState;
-                Win.WindowState = WindowState.Minimized;
+                if (settings) Win.WindowState = WindowState.Minimized;
                 Draw(null);
             } catch (Exception ex) {
                 Log.Error(action + " failed", ex);

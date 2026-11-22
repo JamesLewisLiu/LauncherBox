@@ -22,7 +22,7 @@ Each BAT runs with administrator privileges in its own folder. Use trusted scrip
 
 Games can share one **Launch BAT** and use different **Launch arguments**. Read the values in the BAT with `%~1`, `%~2`, and so on. Use double quotes around arguments containing spaces. Leave the field blank to run the BAT without arguments.
 
-LauncherBox returns when the BAT process exits. If the BAT uses `start` to launch a game, add `/wait` to return after the game closes.
+The launcher window stays open behind the game. LauncherBox asks Windows to bring it forward when the Launch BAT exits. If the BAT uses `start` to launch a game, add `/wait` to return after the game closes.
 
 ```bat
 @echo off
