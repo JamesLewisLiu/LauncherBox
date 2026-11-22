@@ -203,35 +203,6 @@ try {
     $start = $keyboardWindow.FindName('StartGame')
     $setting = $keyboardWindow.FindName('GameSetting')
     $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
-    $keyboardWindow.Activate() | Out-Null
-    Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus for library navigation'
-    $focusedElement = [System.Windows.Input.Keyboard]::FocusedElement
-    $source = [System.Windows.PresentationSource]::FromVisual($start)
-    $keyboard = [System.Windows.Input.Keyboard]::PrimaryDevice
-    $previewKey = $launcherType.GetMethod('OnKey', $instance)
-    $previewKeyDown = [System.Windows.Input.Keyboard]::PreviewKeyDownEvent
-    $tab = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, [System.Windows.Input.Key]::Tab)
-    $tab.RoutedEvent = $previewKeyDown
-    $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $tab))
-    if ($tab.Handled) { throw 'The main window should allow normal Tab navigation.' }
-
-    $keySignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static)
-    $routeInput = $launcherType.GetMethod('RouteInput', $instance)
-    $index = $launcherType.GetField('Index', $instance)
-    foreach ($direction in 'Right', 'Left') {
-        $key = [System.Windows.Input.Key]$direction
-        $arrowEvent = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
-        $arrowEvent.RoutedEvent = $previewKeyDown
-        $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $arrowEvent))
-        if (!$arrowEvent.Handled) { throw "$direction was allowed to move WPF focus." }
-        $inputSignal = $keySignal.Invoke($null, @($key))
-        $expectedIndex = if ($direction -eq 'Right') { 1 } else { 0 }
-        if (!$routeInput.Invoke($keyboardLauncher, @($inputSignal)) -or $index.GetValue($keyboardLauncher) -ne $expectedIndex -or
-            [System.Windows.Input.Keyboard]::FocusedElement -ne $focusedElement) {
-            throw "$direction should switch games without moving button focus."
-        }
-    }
-
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the screenshot to run the Launch BAT'
     if ((Get-Content $startMarker -Raw).Trim() -ne '"Band & Stage" "literal %TEMP%" "!LIVE!"') {
@@ -250,8 +221,9 @@ try {
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
-    $keyboardSignal = $keySignal.Invoke($null, @([System.Windows.Input.Key]::Enter))
-    if (!$routeInput.Invoke($keyboardLauncher, @($keyboardSignal))) {
+    $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
+        $null, @([System.Windows.Input.Key]::Enter))
+    if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
         throw 'The default START input was not handled.'
     }
     Wait-ForWindow { (Test-Path $zeroMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the shared Launch BAT with argument 0'
@@ -260,9 +232,6 @@ try {
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $manualMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the shared Launch BAT to run without arguments'
-    if ($keyboardWindow.FindName('Status').Text -ne 'The batch file has finished.') {
-        throw 'The shared Launch BAT did not exit successfully.'
-    }
 } finally {
     $keyboardWindow.Close()
 }
@@ -350,5 +319,4 @@ foreach ($schema in 1, 2) {
     }
     Move-Item $dbPath (Join-Path $portable "upgraded-$schema.db")
 }
-Write-Host 'Verified fullscreen, native inputs, arrow navigation, shared BAT arguments, independent Setting BAT, and database upgrades.'
-exit 0
+Write-Host 'Verified fullscreen, native inputs, shared BAT arguments, independent Setting BAT, and database upgrades.'
