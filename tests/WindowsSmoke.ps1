@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$portable = Join-Path $env:RUNNER_TEMP 'LauncherBox portable check'
+$portable = Join-Path $env:RUNNER_TEMP ('LauncherBox SQLite check ' + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $portable -Force | Out-Null
 $exe = Join-Path $portable 'LauncherBox.exe'
 Copy-Item 'dist/LauncherBox.exe' -Destination $exe
@@ -8,12 +8,14 @@ $static = [Reflection.BindingFlags]'NonPublic, Static'
 $instance = [Reflection.BindingFlags]'NonPublic, Instance'
 $store = $assembly.GetType('LauncherBox.Store', $true)
 $load = $store.GetMethod('Load', $static)
-$games = $load.Invoke($null, $null)
-$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$profile = Join-Path $portable "Profiles\$sid"
-if ($games.Count -ne 0 -or !(Test-Path $profile -PathType Container)) {
-    throw 'The portable profile must start with an empty library.'
+$games = $load.Invoke($null, @($false))
+$dbPath = Join-Path $portable 'LauncherBox.db'
+$legacyRoot = Join-Path $portable 'Profiles'
+if ($games.Count -ne 0 -or !(Test-Path $dbPath -PathType Leaf) -or (Test-Path $legacyRoot)) {
+    throw 'The portable database must start empty beside the executable.'
 }
+$header = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($dbPath), 0, 15)
+if ($header -ne 'SQLite format 3') { throw 'LauncherBox.db is not a SQLite database.' }
 
 $launcherType = $assembly.GetType('LauncherBox.Launcher', $true)
 $launcher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false), $null)
@@ -87,12 +89,18 @@ try {
 }
 
 $game = [Activator]::CreateInstance($assembly.GetType('LauncherBox.Game', $true))
-$game.Name = 'Portable test game'
-$games.Add($game)
-$store.GetMethod('Save', $static).Invoke($null, (,$games))
-$saved = $load.Invoke($null, $null)
-if ($saved.Count -ne 1 -or $saved[0].Name -ne $game.Name -or !(Test-Path (Join-Path $profile 'games.xml') -PathType Leaf)) {
-    throw 'The portable game library did not round trip.'
+$game.Name = 'Portable ' + [char]0x6E38 + "'s game"
+$game.Bat = 'D:\Games\portable demo.bat'
+$game.Art = [Guid]::NewGuid().ToString('N') + '.png'
+$png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgmMkAAAE2AJrwJL1AAAAAAElFTkSuQmCC')
+$updated = [Activator]::CreateInstance($games.GetType())
+$updated.Add($game)
+$store.GetMethod('Save', $static).Invoke($null, @($games, $updated, $game.Art, $png))
+$saved = $load.Invoke($null, @($false))
+$image = $store.GetMethod('Image', $static)
+if ($saved.Count -ne 1 -or $saved[0].Name -ne $game.Name -or $saved[0].Bat -ne $game.Bat -or
+    $null -eq $image.Invoke($null, @($saved[0].Art)) -or (Test-Path $legacyRoot)) {
+    throw 'The SQLite game library and screenshot did not round trip.'
 }
 
 $mapType = $assembly.GetType('LauncherBox.KeyMap', $true)
@@ -104,7 +112,37 @@ $signal = [Activator]::CreateInstance($signalType, $instance, $null, @($midi, 't
 $mapType.GetMethod('Set', $instance).Invoke($map, @($play, $midi, $signal))
 $reloaded = [Activator]::CreateInstance($mapType, $true)
 $match = $mapType.GetMethod('Match', $instance).Invoke($reloaded, @($signal))
-if ($null -eq $match -or $match.Action -ne $play -or !(Test-Path (Join-Path $profile 'bindings.xml') -PathType Leaf)) {
-    throw 'The portable control binding did not round trip.'
+if ($null -eq $match -or $match.Action -ne $play) {
+    throw 'The SQLite control binding did not round trip.'
 }
-Write-Host 'Verified monitor-sized startup, an empty library, Windows input initialization, MIDI decoding, and portable settings.'
+
+Move-Item $dbPath (Join-Path $portable 'fresh.db')
+$legacy = Join-Path $legacyRoot 'S-1-5-21-12345-23456-34567-1001'
+New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+$legacyGames = Join-Path $legacy 'games.xml'
+@"
+<ArrayOfGame>
+  <Game><Name>Moon Bay Rally</Name><Art>rally.png</Art></Game>
+  <Game><Name>Legacy game</Name><Bat>D:\Games\legacy.bat</Bat><Hash>ABC123</Hash><Art>$($game.Art)</Art></Game>
+</ArrayOfGame>
+"@ | Set-Content -Path $legacyGames -Encoding UTF8
+@'
+<ArrayOfInputBinding>
+  <InputBinding><Action>Play</Action><Source>Midi</Source><Device>test-port</Device>
+    <Code>1:note:60</Code><Label>Legacy MIDI</Label></InputBinding>
+</ArrayOfInputBinding>
+'@ | Set-Content -Path (Join-Path $legacy 'bindings.xml') -Encoding UTF8
+[IO.File]::WriteAllBytes((Join-Path $legacy $game.Art), $png)
+$legacyHash = (Get-FileHash $legacyGames).Hash
+$migrated = $load.Invoke($null, @($false))
+$legacyMap = [Activator]::CreateInstance($mapType, $true)
+$legacyMatch = $mapType.GetMethod('Match', $instance).Invoke($legacyMap, @($signal))
+if ($migrated.Count -ne 1 -or $migrated[0].Name -ne 'Legacy game' -or $migrated[0].Hash -ne 'ABC123' -or
+    $legacyMatch.Label -ne 'Legacy MIDI' -or (Get-FileHash $legacyGames).Hash -ne $legacyHash) {
+    throw 'The legacy game and binding were not imported intact.'
+}
+Move-Item $legacyRoot (Join-Path $portable 'legacy-backup')
+if ($null -eq $image.Invoke($null, @($migrated[0].Art)) -or $load.Invoke($null, @($false)).Count -ne 1) {
+    throw 'The migrated library still depends on its legacy profile.'
+}
+Write-Host 'Verified fullscreen, Windows input, the portable SQLite database, and legacy profile migration.'

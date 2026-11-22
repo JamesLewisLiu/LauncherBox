@@ -1,8 +1,8 @@
 # Using LauncherBox
 
-Extract the ZIP to a folder of your choice. Run `LauncherBox.exe` directly on 64-bit Windows 10 or 11 and approve the administrator prompt. Games, screenshots, and control bindings live in the `Profiles` folder next to the EXE. To update, close the app and replace only the EXE. To build from source, run `Build.cmd` on Windows.
+Extract the ZIP to a folder of your choice. Run `LauncherBox.exe` directly on 64-bit Windows 10 or 11 and approve the administrator prompt. Games, screenshots, and control bindings live in `LauncherBox.db`, a SQLite database next to the EXE. Close LauncherBox before copying the database to another folder or PC. To update, close the app and replace only the EXE. To build from source, run `Build.cmd` on Windows.
 
-If you used the earlier installed build, you can copy its `Profiles` folder from `%ProgramFiles%\LauncherBox` to the folder containing the portable EXE. If you moved a BAT file, select it again in **Settings → Games**.
+On first run, LauncherBox imports the old `Profiles` data beside the EXE. It uses the current Windows account’s profile or the only legacy profile with settings. If several legacy profiles exist and none matches the current account, move the ones you want to skip to a backup folder and restart. The source files are kept. If you moved a BAT file, select it again in **Settings → Games**.
 
 LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, select a local `.bat` file and an optional PNG, JPEG, or BMP screenshot, then choose **Save Game**.
 
@@ -34,4 +34,4 @@ To troubleshoot, check the trigger, account, and last run result of `LauncherBox
 
 ## Remove LauncherBox
 
-If you enabled sign-in startup, disable it under each account that uses it. Close LauncherBox and delete the portable folder. Back up `Profiles` first if you want to keep the library and screenshots.
+If you enabled sign-in startup, disable it under each account that uses it. Close LauncherBox and delete the portable folder. Back up `LauncherBox.db` first to keep your settings.

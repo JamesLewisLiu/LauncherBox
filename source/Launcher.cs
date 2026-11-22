@@ -17,8 +17,6 @@ using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Xml;
-using System.Xml.Serialization;
 using Microsoft.Win32;
 
 namespace LauncherBox {
@@ -29,13 +27,12 @@ namespace LauncherBox {
         public string Art { get; set; }
     }
 
-    internal static class Store {
+    internal static partial class Store {
         internal static readonly string Sid = WindowsIdentity.GetCurrent().User.Value;
         internal static readonly string Exe = Assembly.GetExecutingAssembly().Location;
         internal static readonly string Root = Path.GetDirectoryName(Exe);
-        internal static readonly string Profile = Path.Combine(Root, "Profiles", Sid);
-        internal static readonly string Catalog = Path.Combine(Profile, "games.xml");
-        internal static readonly string Bindings = Path.Combine(Profile, "bindings.xml");
+        internal static readonly string DatabasePath = Path.Combine(Root, "LauncherBox.db");
+        private static readonly string LegacyRoot = Path.Combine(Root, "Profiles");
 
         internal static Window WindowFrom(string name) {
             Window window;
@@ -49,38 +46,6 @@ namespace LauncherBox {
             Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
             if (stream == null) throw new InvalidDataException("Missing embedded resource " + name);
             return stream;
-        }
-
-        internal static List<Game> Load() {
-            Directory.CreateDirectory(Profile);
-            List<Game> games = Read<List<Game>>(Catalog) ?? new List<Game>();
-            games.RemoveAll(game => String.IsNullOrEmpty(game.Bat) && String.IsNullOrEmpty(game.Hash) &&
-                ((game.Name == "Moon Bay Rally" && game.Art == "rally.png") ||
-                 (game.Name == "Starport Breakout" && game.Art == "orbit.png")));
-            return games;
-        }
-
-        internal static void Save(List<Game> games) {
-            Write(Catalog, games);
-        }
-
-        internal static T Read<T>(string path) where T : class {
-            if (!File.Exists(path)) return null;
-            using (XmlReader xml = XmlReader.Create(path, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) {
-                return (T)new XmlSerializer(typeof(T)).Deserialize(xml);
-            }
-        }
-
-        internal static void Write<T>(string path, T value) {
-            string temp = Path.Combine(Profile, Guid.NewGuid().ToString("N") + ".tmp");
-            try {
-                using (FileStream file = File.Create(temp)) {
-                    new XmlSerializer(typeof(T)).Serialize(file, value);
-                    file.Flush(true);
-                }
-                if (File.Exists(path)) File.Replace(temp, path, null);
-                else File.Move(temp, path);
-            } finally { if (File.Exists(temp)) File.Delete(temp); }
         }
 
         internal static string Digest(Stream stream) {
@@ -105,21 +70,21 @@ namespace LauncherBox {
             return image;
         }
 
-        internal static string ImportArt(string path) {
-            string key = Guid.NewGuid().ToString("N") + ".png";
+        internal static byte[] ImportArt(string path) {
             BitmapImage image;
             using (FileStream file = File.OpenRead(path)) image = Decode(file);
             PngBitmapEncoder png = new PngBitmapEncoder();
             png.Frames.Add(BitmapFrame.Create(image));
-            using (FileStream file = File.Create(Path.Combine(Profile, key))) png.Save(file);
-            return key;
+            using (MemoryStream output = new MemoryStream()) {
+                png.Save(output);
+                return output.ToArray();
+            }
         }
 
         internal static BitmapImage Image(string key) {
-            Guid id;
-            if (String.IsNullOrEmpty(key) || !Guid.TryParseExact(Path.GetFileNameWithoutExtension(key), "N", out id)
-                || key != id.ToString("N") + ".png") return null;
-            using (FileStream stream = File.OpenRead(Path.Combine(Profile, key))) return Decode(stream);
+            byte[] png = ReadScreenshot(key);
+            if (png == null) return null;
+            using (MemoryStream stream = new MemoryStream(png, false)) return Decode(stream);
         }
     }
 
@@ -138,7 +103,7 @@ namespace LauncherBox {
                 sid.Value == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"); // TrustedInstaller
         }
 
-        private static void RequireProtectedEntry(FileSystemInfo entry, FileSystemRights changes) {
+        internal static void RequireProtectedEntry(FileSystemInfo entry, FileSystemRights changes = ChangeContents) {
             if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidOperationException("Sign-in startup requires a folder without junctions or symbolic links: " + entry.FullName);
             DirectoryInfo dir = entry as DirectoryInfo;
@@ -166,13 +131,10 @@ namespace LauncherBox {
                 RequireProtectedEntry(parent, ChangeEntry);
             FileInfo appConfig = new FileInfo(Store.Exe + ".config");
             if (appConfig.Exists) RequireProtectedEntry(appConfig, ChangeContents);
-            DirectoryInfo profile = new DirectoryInfo(Store.Profile);
-            if (profile.Parent.Exists) RequireProtectedEntry(profile.Parent, ChangeContents);
-            if (profile.Exists) RequireProtectedEntry(profile, ChangeContents);
-            FileInfo catalog = new FileInfo(Store.Catalog);
-            if (catalog.Exists) RequireProtectedEntry(catalog, ChangeContents);
-            FileInfo bindings = new FileInfo(Store.Bindings);
-            if (bindings.Exists) RequireProtectedEntry(bindings, ChangeContents);
+            foreach (string suffix in new[] { "", "-journal", "-wal", "-shm" }) {
+                FileInfo settings = new FileInfo(Store.DatabasePath + suffix);
+                if (settings.Exists) RequireProtectedEntry(settings);
+            }
         }
 
         private static dynamic Service() {
@@ -234,7 +196,7 @@ namespace LauncherBox {
 
         internal Launcher(bool automatic) {
             logon = automatic;
-            Games = Store.Load();
+            Games = Store.Load(logon);
             Bindings = new KeyMap();
             Find<Button>("Previous").Click += delegate { Step(-1); };
             Find<Button>("Next").Click += delegate { Step(1); };
@@ -579,9 +541,7 @@ namespace LauncherBox {
             if (game != null) launcher.Index = launcher.Games.IndexOf(game);
             Find<TextBox>("TitleBox").Text = game == null ? "" : game.Name;
             Find<TextBox>("BatBox").Text = game == null ? "" : game.Bat;
-            Guid screenshot;
-            Find<TextBox>("ImageBox").Text = game != null && Guid.TryParseExact(Path.GetFileNameWithoutExtension(game.Art), "N", out screenshot) ?
-                "Saved screenshot" : "";
+            Find<TextBox>("ImageBox").Text = game != null && !String.IsNullOrEmpty(game.Art) ? "Saved screenshot" : "";
             Find<Button>("Remove").IsEnabled = game != null;
             binding = false;
             dirty = false;
@@ -599,10 +559,11 @@ namespace LauncherBox {
             if (pickedBatch || String.IsNullOrEmpty(hash))
                 using (FileStream stream = Store.OpenBatch(path)) hash = Store.Digest(stream);
             Game game = new Game { Name = name, Bat = path, Hash = hash, Art = selected == null ? null : selected.Art };
-            if (!String.IsNullOrEmpty(pendingArt)) game.Art = Store.ImportArt(pendingArt);
+            byte[] png = String.IsNullOrEmpty(pendingArt) ? null : Store.ImportArt(pendingArt);
+            if (png != null) game.Art = Guid.NewGuid().ToString("N") + ".png";
             List<Game> updated = new List<Game>(launcher.Games);
             if (selected != null) updated[updated.IndexOf(selected)] = game; else updated.Add(game);
-            Store.Save(updated);
+            Store.Save(launcher.Games, updated, game.Art, png);
             launcher.Games = updated;
             Rebind(game);
         }
@@ -610,7 +571,7 @@ namespace LauncherBox {
             if (selected == null || MessageBox.Show(win, "Remove '" + selected.Name + "' from the library? The game and BAT file will stay on disk.", "Remove Game", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
             List<Game> updated = new List<Game>(launcher.Games);
             updated.Remove(selected);
-            Store.Save(updated);
+            Store.Save(launcher.Games, updated);
             launcher.Games = updated;
             Rebind(updated.Count > 0 ? updated[Math.Min(launcher.Index, updated.Count - 1)] : null);
         }

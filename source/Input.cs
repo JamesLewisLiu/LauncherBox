@@ -52,7 +52,7 @@ namespace LauncherBox {
         private List<InputBinding> bindings;
 
         internal KeyMap() {
-            bindings = Store.Read<List<InputBinding>>(Store.Bindings) ?? Defaults();
+            bindings = Store.LoadBindings() ?? Defaults();
         }
 
         private static InputBinding Make(LauncherAction action, InputSignal signal) {
@@ -89,21 +89,20 @@ namespace LauncherBox {
         }
 
         internal void Set(LauncherAction action, InputSource source, InputSignal signal) {
-            List<InputBinding> updated = new List<InputBinding>(bindings);
-            updated.RemoveAll(b => (b.Action == action && b.Source == source) || (signal != null && b.Matches(signal)));
-            if (signal != null) updated.Add(Make(action, signal));
-            Commit(updated);
+            bindings = Store.UpdateBindings(current => {
+                List<InputBinding> updated = current ?? Defaults();
+                updated.RemoveAll(b => (b.Action == action && b.Source == source) || (signal != null && b.Matches(signal)));
+                if (signal != null) updated.Add(Make(action, signal));
+                return updated;
+            });
         }
 
         internal void Reset(InputSource source) {
-            List<InputBinding> updated = bindings.FindAll(b => b.Source != source);
-            updated.AddRange(Defaults().FindAll(b => b.Source == source));
-            Commit(updated);
-        }
-
-        private void Commit(List<InputBinding> updated) {
-            Store.Write(Store.Bindings, updated);
-            bindings = updated;
+            bindings = Store.UpdateBindings(current => {
+                List<InputBinding> updated = (current ?? Defaults()).FindAll(b => b.Source != source);
+                updated.AddRange(Defaults().FindAll(b => b.Source == source));
+                return updated;
+            });
         }
     }
 
