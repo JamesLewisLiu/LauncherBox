@@ -205,7 +205,7 @@ try {
     $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus for library navigation'
-    [System.Windows.Input.Keyboard]::Focus($start) | Out-Null
+    $focusedElement = [System.Windows.Input.Keyboard]::FocusedElement
     $source = [System.Windows.PresentationSource]::FromVisual($start)
     $keyboard = [System.Windows.Input.Keyboard]::PrimaryDevice
     $preview = [System.Windows.Input.Keyboard]::PreviewKeyDownEvent
@@ -219,14 +219,14 @@ try {
     $index = $launcherType.GetField('Index', $instance)
     foreach ($direction in 'Right', 'Left') {
         $key = [System.Windows.Input.Key]$direction
-        $event = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
-        $event.RoutedEvent = $preview
-        $start.RaiseEvent($event)
-        if (!$event.Handled) { throw "$direction was allowed to move WPF focus." }
+        $arrowEvent = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
+        $arrowEvent.RoutedEvent = $preview
+        $start.RaiseEvent($arrowEvent)
+        if (!$arrowEvent.Handled) { throw "$direction was allowed to move WPF focus." }
         $inputSignal = $keySignal.Invoke($null, @($key))
         $expectedIndex = if ($direction -eq 'Right') { 1 } else { 0 }
         if (!$routeInput.Invoke($keyboardLauncher, @($inputSignal)) -or $index.GetValue($keyboardLauncher) -ne $expectedIndex -or
-            [System.Windows.Input.Keyboard]::FocusedElement -ne $start) {
+            [System.Windows.Input.Keyboard]::FocusedElement -ne $focusedElement) {
             throw "$direction should switch games without moving button focus."
         }
     }
@@ -346,4 +346,5 @@ foreach ($schema in 1, 2) {
     }
     Move-Item $dbPath (Join-Path $portable "upgraded-$schema.db")
 }
-Write-Host 'Verified fullscreen, native inputs, shared BAT arguments, independent Setting BAT, and database upgrades.'
+$window.Dispatcher.InvokeShutdown()
+Write-Host 'Verified fullscreen, native inputs, arrow navigation, shared BAT arguments, independent Setting BAT, and database upgrades.'
