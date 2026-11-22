@@ -15,7 +15,8 @@ pushd "%~dp0source" || exit /b 1
   /r:"%FX%\WPF\PresentationCore.dll" /r:"%FX%\WPF\PresentationFramework.dll" ^
   /r:"%FX%\WPF\WindowsBase.dll" /r:"%FX%\System.Xaml.dll" /r:"%FX%\Microsoft.CSharp.dll" ^
   /resource:Main.xaml,Main.xaml /resource:Manager.xaml,Manager.xaml ^
-  /resource:Theme.xaml,Theme.xaml Launcher.cs Input.cs DirectInput.cs MidiInput.cs Settings.cs Sqlite.cs
+  /resource:Theme.xaml,Theme.xaml /resource:LauncherBox.ico,LauncherBox.ico ^
+  Launcher.cs Input.cs DirectInput.cs MidiInput.cs Settings.cs Sqlite.cs Diagnostics.cs GamepadWorker.cs
 set "RESULT=%ERRORLEVEL%"
 popd
 exit /b %RESULT%

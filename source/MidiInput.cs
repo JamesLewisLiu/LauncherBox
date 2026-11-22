@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -11,19 +12,38 @@ namespace LauncherBox {
         private readonly HashSet<string> active = new HashSet<string>();
         private int pending;
         private bool disposed;
+        private bool scanned;
+        private volatile Stopwatch scanClock;
+        private Stopwatch reportedScan;
 
         internal MidiInput(IntPtr window) {
             this.window = window;
         }
 
         internal void Refresh() {
-            if (Interlocked.CompareExchange(ref pending, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref pending, 1, 0) != 0) {
+                Stopwatch clock = scanClock;
+                if (clock != null && clock != reportedScan && clock.ElapsedMilliseconds >= 2000) {
+                    reportedScan = clock;
+                    Log.Info("MIDI is waiting for device enumeration; the launcher can still accept keyboard input.");
+                }
+                return;
+            }
+            scanClock = Stopwatch.StartNew();
             ThreadPool.QueueUserWorkItem(delegate {
                 try {
                     lock (sync) {
-                        if (!disposed && Volatile.Read(ref pending) == 1) Scan();
+                        if (!disposed && Volatile.Read(ref pending) == 1) {
+                            if (!scanned) Log.Info("Enumerating MIDI inputs.");
+                            Scan();
+                            if (!scanned) Log.Info("MIDI enumeration finished (" + ports.Count + " ports open).");
+                            scanned = true;
+                        }
                     }
+                } catch (Exception ex) {
+                    Log.Error("MIDI enumeration failed", ex);
                 } finally {
+                    scanClock = null;
                     Interlocked.Exchange(ref pending, 0);
                 }
             });
@@ -107,6 +127,9 @@ namespace LauncherBox {
                 ports = new Dictionary<IntPtr, Port>();
                 foreach (IntPtr port in closing.Keys) Close(port);
             }
+        }
+
+        internal void ResetControls() {
             active.Clear();
         }
 

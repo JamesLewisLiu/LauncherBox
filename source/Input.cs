@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -109,20 +110,24 @@ namespace LauncherBox {
     internal sealed class DeviceInput : IDisposable {
         private readonly HwndSource window;
         private readonly DispatcherTimer timer;
-        private readonly DirectInput direct;
+        private readonly GamepadWorker direct;
+        private readonly GamepadWorker xinput;
         private readonly MidiInput midi;
         private readonly Func<bool> active;
         private readonly Func<InputSignal, bool> route;
         private HashSet<string> held;
         private DateTime nextScan;
 
-        internal DeviceInput(HwndSource window, Func<bool> active, Func<InputSignal, bool> route) {
+        internal DeviceInput(HwndSource window, Func<bool> active, Func<InputSignal, bool> route, bool keyboardOnly) {
             this.window = window;
             this.active = active;
             this.route = route;
-            direct = new DirectInput(window.Handle);
-            midi = new MidiInput(window.Handle);
-            window.AddHook(OnMessage);
+            if (!keyboardOnly) {
+                direct = new GamepadWorker(window.Handle, true);
+                xinput = new GamepadWorker(window.Handle, false);
+                midi = new MidiInput(window.Handle);
+                window.AddHook(OnMessage);
+            }
             timer = new DispatcherTimer(DispatcherPriority.Input, window.Dispatcher);
             timer.Interval = TimeSpan.FromMilliseconds(16);
             timer.Tick += Tick;
@@ -130,20 +135,26 @@ namespace LauncherBox {
         }
 
         private void Tick(object sender, EventArgs e) {
-            if (!active()) {
+            bool acceptsInput = active();
+            if (direct != null) {
+                direct.Active = acceptsInput;
+                xinput.Active = acceptsInput;
+            }
+            if (!acceptsInput) {
                 held = null;
                 return;
             }
             DateTime now = DateTime.UtcNow;
-            if (now >= nextScan) {
-                direct.Refresh();
+            if (midi != null && now >= nextScan) {
                 midi.Refresh();
                 nextScan = now.AddSeconds(2);
             }
             List<InputSignal> pressed = new List<InputSignal>();
             NaiveKeyboard.Read(pressed);
-            XInput.Read(pressed);
-            direct.Read(pressed);
+            if (direct != null) {
+                xinput.Read(pressed);
+                direct.Read(pressed);
+            }
             HashSet<string> current = new HashSet<string>();
             foreach (InputSignal signal in pressed) current.Add(signal.Identity);
             HashSet<string> previous = held;
@@ -155,20 +166,28 @@ namespace LauncherBox {
         }
 
         private IntPtr OnMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled) {
-            if (message == 0x0219) nextScan = DateTime.MinValue; // WM_DEVICECHANGE
+            if (message == 0x0219) { // WM_DEVICECHANGE
+                nextScan = DateTime.MinValue;
+                direct.Rescan();
+            }
             if (message == 0x03C3 || message == 0x03CC) { // MM_MIM_DATA and MM_MIM_MOREDATA
-                InputSignal signal = midi.Decode(wParam, unchecked((uint)lParam.ToInt64()));
-                if (signal != null && active()) route(signal);
+                if (active()) {
+                    InputSignal signal = midi.Decode(wParam, unchecked((uint)lParam.ToInt64()));
+                    if (signal != null) route(signal);
+                }
                 handled = true;
             }
             return IntPtr.Zero;
         }
 
-        internal void ReleaseForGame() {
+        internal async Task ReleaseForGame() {
             ResetHeld();
-            direct.Unacquire();
-            midi.Suspend();
+            if (midi == null) return;
+            midi.ResetControls();
             nextScan = DateTime.MinValue;
+            Task release = Task.WhenAll(direct.Suspend(), xinput.Suspend(), Task.Run(midi.Suspend));
+            if (await Task.WhenAny(release, Task.Delay(1200)) == release) await release;
+            else Log.Info("Timed out waiting for game controllers or MIDI ports to be released.");
         }
 
         internal void ResetHeld() {
@@ -177,9 +196,11 @@ namespace LauncherBox {
 
         public void Dispose() {
             timer.Stop();
+            if (midi == null) return;
             if (!window.IsDisposed) window.RemoveHook(OnMessage);
             direct.Dispose();
-            midi.Dispose();
+            xinput.Dispose();
+            Task.Run(midi.Dispose);
         }
     }
 

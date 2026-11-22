@@ -157,6 +157,7 @@ namespace LauncherBox {
             string profile = FindLegacyProfile();
             if (profile == null) return;
             if (protectedStartup) Startup.RequireProtectedEntry(new DirectoryInfo(profile));
+            Log.Info("Importing an older settings profile into SQLite.");
 
             List<Game> games = ReadLegacy<List<Game>>(Path.Combine(profile, "games.xml"), protectedStartup);
             if (games != null) {
@@ -177,6 +178,7 @@ namespace LauncherBox {
             }
             List<InputBinding> bindings = ReadLegacy<List<InputBinding>>(Path.Combine(profile, "bindings.xml"), protectedStartup);
             if (bindings != null) WriteBindings(db, bindings);
+            Log.Info("Legacy settings import finished.");
         }
 
         private static string LegacyScreenshot(string profile, string key) {

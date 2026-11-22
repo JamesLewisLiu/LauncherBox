@@ -35,3 +35,7 @@ To troubleshoot, check the trigger, account, and last run result of `LauncherBox
 ## Remove LauncherBox
 
 If you enabled sign-in startup, disable it under each account that uses it. Close LauncherBox and delete the portable folder. Back up `LauncherBox.db` first to keep your settings.
+
+## Startup diagnostics
+
+LauncherBox writes startup, database, and input events to `LauncherBox.log` beside the EXE. If it cannot write there, look for `LauncherBox-<PID>.log` in `%TEMP%`. If startup stalls, try running `.\LauncherBox.exe --keyboard-only` in PowerShell from the portable folder. That session uses the keyboard and mouse so you can check whether a game controller or MIDI driver is involved.

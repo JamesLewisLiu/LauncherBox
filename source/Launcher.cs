@@ -9,6 +9,7 @@ using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -35,10 +36,14 @@ namespace LauncherBox {
         private static readonly string LegacyRoot = Path.Combine(Root, "Profiles");
 
         internal static Window WindowFrom(string name) {
+            Log.Info("Loading " + name + " layout.");
             Window window;
             using (Stream input = Resource(name)) window = (Window)XamlReader.Load(input);
             using (Stream theme = Resource("Theme.xaml"))
                 window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Load(theme));
+            using (Stream icon = Resource("LauncherBox.ico"))
+                window.Icon = BitmapFrame.Create(icon, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            Log.Info(name + " layout loaded.");
             return window;
         }
 
@@ -182,8 +187,8 @@ namespace LauncherBox {
 
     internal sealed class Launcher {
         internal readonly Window Win = Store.WindowFrom("Main.xaml");
-        internal readonly KeyMap Bindings;
-        internal List<Game> Games;
+        internal KeyMap Bindings;
+        internal List<Game> Games = new List<Game>();
         internal int Index;
         private readonly bool logon;
         private Editor editor;
@@ -191,29 +196,60 @@ namespace LauncherBox {
         private Process running;
         private FileStream batchLock;
         private bool full;
+        private bool closed;
+        private string displayedArt;
         private WindowState previousState;
         private T Find<T>(string id) where T : class { return (T)Win.FindName(id); }
 
-        internal Launcher(bool automatic) {
+        internal Launcher(bool automatic, bool keyboardOnly) {
             logon = automatic;
-            Games = Store.Load(logon);
-            Bindings = new KeyMap();
             Find<Button>("Previous").Click += delegate { Step(-1); };
             Find<Button>("Next").Click += delegate { Step(1); };
             Find<Button>("Play").Click += delegate { Launch(); };
             Find<Button>("Manage").Click += delegate { Manage(); };
             Find<Button>("Manage").Visibility = logon ? Visibility.Collapsed : Visibility.Visible;
+            Find<Button>("Manage").IsEnabled = false;
             Win.PreviewKeyDown += OnKey;
             Win.SourceInitialized += delegate {
+                Log.Info("Main window handle created.");
                 HwndSource source = HwndSource.FromHwnd(new WindowInteropHelper(Win).Handle);
-                devices = new DeviceInput(source, HasInputFocus, RouteInput);
+                devices = new DeviceInput(source, HasInputFocus, RouteInput, keyboardOnly);
+                Log.Info(keyboardOnly ? "Keyboard-only mode active." : "Input monitors registered.");
             };
+            Win.Loaded += LoadSettings;
+            Win.ContentRendered += OnContentRendered;
             Win.Closed += delegate {
+                closed = true;
+                Log.Info("Main window closed.");
                 if (devices != null) devices.Dispose();
                 Release();
             };
             Fullscreen();
-            Draw(null);
+            Draw("Loading settings...");
+        }
+
+        private void OnContentRendered(object sender, EventArgs e) {
+            Win.ContentRendered -= OnContentRendered;
+            Log.Info("Main window rendered.");
+        }
+
+        private async void LoadSettings(object sender, RoutedEventArgs e) {
+            Win.Loaded -= LoadSettings;
+            try {
+                Log.Info("Loading the SQLite game library.");
+                List<Game> games = await Task.Run(() => Store.Load(logon));
+                Log.Info("Game library loaded (" + games.Count + " games). Loading input bindings.");
+                KeyMap bindings = await Task.Run(() => new KeyMap());
+                if (closed) return;
+                Games = games;
+                Bindings = bindings;
+                Find<Button>("Manage").IsEnabled = true;
+                Draw(null);
+                Log.Info("Launcher ready.");
+            } catch (Exception ex) {
+                Log.Error("Loading settings failed", ex);
+                if (!closed) Draw("Could not load settings. See LauncherBox.log.");
+            }
         }
 
         private void OnKey(object sender, KeyEventArgs e) {
@@ -243,7 +279,7 @@ namespace LauncherBox {
         }
 
         private bool HasInputFocus() {
-            return running == null && (editor == null ? Win.IsActive : editor.IsActive);
+            return Bindings != null && running == null && (editor == null ? Win.IsActive : editor.IsActive);
         }
 
         private bool RouteInput(InputSignal signal) {
@@ -298,25 +334,39 @@ namespace LauncherBox {
             Find<TextBlock>("GameName").Text = game != null ? game.Name : "";
             Find<TextBlock>("GameName").Visibility = game == null ? Visibility.Collapsed : Visibility.Visible;
             Find<TextBlock>("EmptyLibrary").Text = logon ? "No games." : "No games. Open Settings to add a game.";
-            Find<TextBlock>("EmptyLibrary").Visibility = game == null ? Visibility.Visible : Visibility.Collapsed;
+            Find<TextBlock>("EmptyLibrary").Visibility = game == null && Bindings != null ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("Previous").Visibility = Find<Button>("Next").Visibility = Games.Count > 1 ? Visibility.Visible : Visibility.Hidden;
             Find<Button>("Play").Content = ready ? "Play" : "Choose a BAT File";
             Find<Button>("Play").Visibility = game != null && (ready || !logon) ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("Play").IsEnabled = running == null && (ready || !logon);
-            try { Find<Image>("Cover").Source = Store.Image(game == null ? null : game.Art); }
-            catch (Exception) { Find<Image>("Cover").Source = null; notice = "Could not load the screenshot. Choose it again in Settings."; }
             Find<TextBlock>("Status").Text = notice ?? "";
+            string art = game == null ? null : game.Art;
+            if (art != displayedArt) ShowScreenshot(art);
+        }
+
+        private async void ShowScreenshot(string art) {
+            displayedArt = art;
+            Find<Image>("Cover").Source = null;
+            if (String.IsNullOrEmpty(art)) return;
+            try {
+                BitmapImage image = await Task.Run(() => Store.Image(art));
+                if (!closed && displayedArt == art) Find<Image>("Cover").Source = image;
+            } catch (Exception ex) {
+                Log.Error("Loading a game screenshot failed", ex);
+                if (!closed && displayedArt == art)
+                    Find<TextBlock>("Status").Text = "Could not load the screenshot. Choose it again in Settings.";
+            }
         }
 
         private void Manage() {
-            if (logon || editor != null) return;
+            if (logon || editor != null || Bindings == null || running != null) return;
             editor = new Editor(this);
             try { editor.Show(); }
             finally { editor = null; }
             Draw(null);
         }
 
-        private void Launch() {
+        private async void Launch() {
             if (running != null) return;
             if (Games.Count == 0 || String.IsNullOrEmpty(Games[Index].Bat)) { Manage(); return; }
             Game game = Games[Index];
@@ -342,14 +392,17 @@ namespace LauncherBox {
                     }));
                 };
                 running = process;
-                if (devices != null) devices.ReleaseForGame();
+                if (devices != null) await devices.ReleaseForGame();
+                if (closed) return;
                 process.Start();
+                Log.Info("Game process started.");
                 beforeGame = Win.WindowState;
                 Win.WindowState = WindowState.Minimized;
                 Draw(null);
             } catch (Exception ex) {
+                Log.Error("Launching the game failed", ex);
                 Release();
-                MessageBox.Show(Win, ex.Message, "Could Not Launch Game", MessageBoxButton.OK, MessageBoxImage.Warning);
+                if (!closed) MessageBox.Show(Win, ex.Message, "Could Not Launch Game", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         private WindowState beforeGame;
@@ -521,7 +574,10 @@ namespace LauncherBox {
         }
         private void Guard(Action action) {
             try { action(); }
-            catch (Exception ex) { MessageBox.Show(win, ex.Message, "Action Failed", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            catch (Exception ex) {
+                Log.Error("Updating settings failed", ex);
+                MessageBox.Show(win, ex.Message, "Action Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         private bool Discard() {
             return !dirty || MessageBox.Show(win, "Discard unsaved changes to this game?", "Settings", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
@@ -584,6 +640,7 @@ namespace LauncherBox {
                 Find<TextBlock>("AutoState").Text = autoEnabled && !String.Equals(path, Store.Exe, StringComparison.OrdinalIgnoreCase) ?
                     "Enabled for another copy: " + path : (autoEnabled ? "Enabled" : "Disabled") + "  ·  " + WindowsIdentity.GetCurrent().Name;
             } catch (Exception ex) {
+                Log.Error("Reading the sign-in task failed", ex);
                 Find<Button>("ToggleAuto").Content = "Unavailable";
                 Find<Button>("ToggleAuto").IsEnabled = false;
                 Find<TextBlock>("AutoState").Text = "Could not read the scheduled task: " + ex.Message;
@@ -595,23 +652,38 @@ namespace LauncherBox {
     public static class Program {
         [STAThread]
         public static void Main(string[] args) {
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) {
+                Log.Info("Unhandled exception: " + e.ExceptionObject);
+                Log.Finish();
+            };
             try {
+                bool logon = Array.IndexOf(args, "--logon") >= 0;
+                bool keyboardOnly = Array.IndexOf(args, "--keyboard-only") >= 0;
+                Log.Info("LauncherBox starting (" + (logon ? "sign-in" : "manual") +
+                    (keyboardOnly ? ", keyboard only" : "") + "). Windows " + Environment.OSVersion.Version + ".");
                 if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
                     throw new InvalidOperationException("Run LauncherBox as administrator.");
-                bool logon = Array.IndexOf(args, "--logon") >= 0;
-                if (logon) Startup.RequireProtectedLocation();
+                if (logon) {
+                    Log.Info("Checking the protected sign-in location.");
+                    Startup.RequireProtectedLocation();
+                }
                 bool created;
                 using (Mutex mutex = new Mutex(true, "Local\\LauncherBox." + Store.Sid + (logon ? ".Display" : ".Manager"), out created)) {
                     if (!created) { if (!logon) MessageBox.Show("LauncherBox is already open.", "LauncherBox"); return; }
                     try {
                         Application app = new Application();
-                        Launcher launcher = new Launcher(logon);
+                        Launcher launcher = new Launcher(logon, keyboardOnly);
+                        Log.Info("Starting the window message loop.");
                         app.Run(launcher.Win);
                     } finally { mutex.ReleaseMutex(); }
                 }
             } catch (Exception ex) {
+                Log.Error("LauncherBox stopped unexpectedly", ex);
                 Environment.ExitCode = 1;
-                MessageBox.Show(ex.GetBaseException().Message, "LauncherBox", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(ex.GetBaseException().Message + "\n\nSee LauncherBox.log.", "LauncherBox", MessageBoxButton.OK, MessageBoxImage.Error);
+            } finally {
+                Log.Info("LauncherBox exiting.");
+                Log.Finish();
             }
         }
     }

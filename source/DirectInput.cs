@@ -14,7 +14,9 @@ namespace LauncherBox {
             this.window = window;
             Guid iid = typeof(IInput).GUID;
             IInput native;
-            if (DirectInput8Create(GetModuleHandle(null), 0x0800, ref iid, out native, IntPtr.Zero) >= 0) input = native;
+            int result = DirectInput8Create(GetModuleHandle(null), 0x0800, ref iid, out native, IntPtr.Zero);
+            if (result < 0) Marshal.ThrowExceptionForHR(result);
+            input = native;
         }
 
         internal void Refresh() {

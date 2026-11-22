@@ -18,7 +18,7 @@ $header = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($dbPath), 0, 
 if ($header -ne 'SQLite format 3') { throw 'LauncherBox.db is not a SQLite database.' }
 
 $launcherType = $assembly.GetType('LauncherBox.Launcher', $true)
-$launcher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false), $null)
+$launcher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false, $false), $null)
 $window = $launcherType.GetField('Win', $instance).GetValue($launcher)
 $fullscreen = $launcherType.GetMethod('Fullscreen', $instance)
 Add-Type -AssemblyName System.Windows.Forms
@@ -32,10 +32,26 @@ public static class WindowBounds {
     public static extern bool GetWindowRect(IntPtr handle, out Rect rect);
 }
 '@
+function Wait-ForWindow([scriptblock]$Condition, [string]$Description) {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while (!(& $Condition)) {
+        if ($clock.ElapsedMilliseconds -gt 6000) { throw "Timed out waiting for $Description." }
+        $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+        Start-Sleep -Milliseconds 20
+    }
+}
+
+$sqlite = $assembly.GetType('LauncherBox.Sqlite', $true)
+$lock = [Activator]::CreateInstance($sqlite, $instance, $null, @($dbPath), $null)
+$execute = $sqlite.GetMethod('Execute', $instance)
+$execute.Invoke($lock, @('BEGIN EXCLUSIVE', [object[]]@()))
+$bindingsField = $launcherType.GetField('Bindings', $instance)
+$logPath = Join-Path $portable 'LauncherBox.log'
 try {
     $window.Show()
     if ($window.WindowStyle -ne 'None' -or $window.WindowState -ne 'Maximized' -or
-        $window.Background.Color.ToString() -ne '#FF000000' -or $null -ne $window.FindName('Cover').Source) {
+        $window.Background.Color.ToString() -ne '#FF000000' -or
+        $null -ne $window.FindName('Cover').Source -or $null -eq $window.Icon) {
         throw 'LauncherBox must open fullscreen with a black background and no image.'
     }
     $hwnd = [System.Windows.Interop.WindowInteropHelper]::new($window).Handle
@@ -48,19 +64,20 @@ try {
     }
     $fullscreen.Invoke($launcher, $null)
     if ($window.WindowState -ne 'Normal') { throw 'Fullscreen did not toggle off.' }
+    if ($null -ne $bindingsField.GetValue($launcher)) { throw 'Startup settings loaded while SQLite was locked.' }
+    $execute.Invoke($lock, @('COMMIT', [object[]]@()))
+    Wait-ForWindow { $null -ne $bindingsField.GetValue($launcher) } 'the unlocked SQLite settings'
+    $window.Activate() | Out-Null
     $deviceInput = $launcherType.GetField('devices', $instance).GetValue($launcher)
-    $direct = $deviceInput.GetType().GetField('direct', $instance).GetValue($deviceInput)
-    $direct.GetType().GetMethod('Refresh', $instance).Invoke($direct, $null)
-    if ($null -eq $direct.GetType().GetField('input', $instance).GetValue($direct)) {
-        throw 'DirectInput did not initialize.'
+    foreach ($field in 'direct', 'xinput') {
+        $worker = $deviceInput.GetType().GetField($field, $instance).GetValue($deviceInput)
+        $firstPoll = $worker.GetType().GetProperty('FirstPoll', $instance).GetValue($worker)
+        Wait-ForWindow { $firstPoll.IsCompleted } "$field initialization"
+        if (!$firstPoll.Result) { throw "$field did not initialize. $(Get-Content $logPath -Tail 12)" }
     }
-    foreach ($type in 'NaiveKeyboard', 'XInput') {
-        $read = $assembly.GetType("LauncherBox.$type", $true).GetMethod('Read', $static)
-        $signals = [Activator]::CreateInstance($read.GetParameters()[0].ParameterType)
-        $read.Invoke($null, (,$signals))
-    }
-    $midiInput = $deviceInput.GetType().GetField('midi', $instance).GetValue($deviceInput)
-    $midiType = $midiInput.GetType()
+    Wait-ForWindow { (Test-Path $logPath) -and ((Get-Content $logPath -Raw) -match 'Launcher ready') } 'the portable startup log'
+    $midiType = $assembly.GetType('LauncherBox.MidiInput', $true)
+    $midiInput = [Activator]::CreateInstance($midiType, $instance, $null, @([IntPtr]::Zero), $null)
     $port = [Activator]::CreateInstance($midiType.GetNestedType('Port', [Reflection.BindingFlags]::NonPublic), $true)
     $port.GetType().GetField('Id', $instance).SetValue($port, 'test-port')
     $port.GetType().GetField('Name', $instance).SetValue($port, 'Test Port')
@@ -85,7 +102,22 @@ try {
     }
     $settings.Close()
 } finally {
+    $lock.Dispose()
     $window.Close()
+}
+
+$keyboardLauncher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false, $true), $null)
+$keyboardWindow = $launcherType.GetField('Win', $instance).GetValue($keyboardLauncher)
+try {
+    $keyboardWindow.Show()
+    $inputs = $launcherType.GetField('devices', $instance).GetValue($keyboardLauncher)
+    foreach ($field in 'direct', 'xinput', 'midi') {
+        if ($null -ne $inputs.GetType().GetField($field, $instance).GetValue($inputs)) {
+            throw 'Keyboard-only mode initialized a hardware input backend.'
+        }
+    }
+} finally {
+    $keyboardWindow.Close()
 }
 
 $game = [Activator]::CreateInstance($assembly.GetType('LauncherBox.Game', $true))
@@ -145,4 +177,4 @@ Move-Item $legacyRoot (Join-Path $portable 'legacy-backup')
 if ($null -eq $image.Invoke($null, @($migrated[0].Art)) -or $load.Invoke($null, @($false)).Count -ne 1) {
     throw 'The migrated library still depends on its legacy profile.'
 }
-Write-Host 'Verified fullscreen, Windows input, the portable SQLite database, and legacy profile migration.'
+Write-Host 'Verified fullscreen, responsive SQLite startup, input workers, keyboard-only mode, logging, and profile migration.'
