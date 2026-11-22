@@ -208,10 +208,9 @@ try {
     $focusedElement = [System.Windows.Input.Keyboard]::FocusedElement
     $source = [System.Windows.PresentationSource]::FromVisual($start)
     $keyboard = [System.Windows.Input.Keyboard]::PrimaryDevice
-    $preview = [System.Windows.Input.Keyboard]::PreviewKeyDownEvent
+    $previewKey = $launcherType.GetMethod('OnKey', $instance)
     $tab = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, [System.Windows.Input.Key]::Tab)
-    $tab.RoutedEvent = $preview
-    $start.RaiseEvent($tab)
+    $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $tab))
     if ($tab.Handled) { throw 'The main window should allow normal Tab navigation.' }
 
     $keySignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static)
@@ -220,8 +219,7 @@ try {
     foreach ($direction in 'Right', 'Left') {
         $key = [System.Windows.Input.Key]$direction
         $arrowEvent = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
-        $arrowEvent.RoutedEvent = $preview
-        $start.RaiseEvent($arrowEvent)
+        $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $arrowEvent))
         if (!$arrowEvent.Handled) { throw "$direction was allowed to move WPF focus." }
         $inputSignal = $keySignal.Invoke($null, @($key))
         $expectedIndex = if ($direction -eq 'Right') { 1 } else { 0 }
@@ -346,5 +344,4 @@ foreach ($schema in 1, 2) {
     }
     Move-Item $dbPath (Join-Path $portable "upgraded-$schema.db")
 }
-$window.Dispatcher.InvokeShutdown()
 Write-Host 'Verified fullscreen, native inputs, arrow navigation, shared BAT arguments, independent Setting BAT, and database upgrades.'
