@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Threading;
@@ -28,33 +29,10 @@ namespace LauncherBox {
 
     internal static class Store {
         internal static readonly string Sid = WindowsIdentity.GetCurrent().User.Value;
-        internal static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "LauncherBox");
-        internal static readonly string Exe = Path.Combine(Root, "LauncherBox.exe");
+        internal static readonly string Exe = Assembly.GetExecutingAssembly().Location;
+        internal static readonly string Root = Path.GetDirectoryName(Exe);
         internal static readonly string Profile = Path.Combine(Root, "Profiles", Sid);
-        private static readonly string Catalog = Path.Combine(Profile, "games.xml");
-
-        internal static bool Install() {
-            string self = Assembly.GetExecutingAssembly().Location;
-            if (String.Equals(Path.GetFullPath(self), Exe, StringComparison.OrdinalIgnoreCase)) return true;
-            if (MessageBox.Show("Install LauncherBox to " + Root + " and create a desktop shortcut?", "Install LauncherBox", MessageBoxButton.OKCancel) != MessageBoxResult.OK) return false;
-            Directory.CreateDirectory(Root);
-            string staging = Path.Combine(Root, Guid.NewGuid().ToString("N") + ".tmp");
-            try {
-                File.Copy(self, staging);
-                if (File.Exists(Exe)) File.Replace(staging, Exe, null);
-                else File.Move(staging, Exe);
-            } finally { if (File.Exists(staging)) File.Delete(staging); }
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-            if (Directory.Exists(desktop)) {
-                dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell", true));
-                dynamic link = shell.CreateShortcut(Path.Combine(desktop, "LauncherBox.lnk"));
-                link.TargetPath = Exe;
-                link.WorkingDirectory = Root;
-                link.Save();
-            }
-            Process.Start(new ProcessStartInfo(Exe) { UseShellExecute = true, WorkingDirectory = Root });
-            return false;
-        }
+        internal static readonly string Catalog = Path.Combine(Profile, "games.xml");
 
         internal static Window WindowFrom(string name) {
             using (Stream input = Resource(name)) return (Window)XamlReader.Load(input);
@@ -135,17 +113,67 @@ namespace LauncherBox {
     internal static class Startup {
         private static string Name { get { return "LauncherBox-Logon-" + Store.Sid; } }
 
+        private const FileSystemRights ChangeEntry = FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles |
+            FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership | FileSystemRights.WriteAttributes |
+            FileSystemRights.WriteExtendedAttributes;
+        private const FileSystemRights ChangeContents = ChangeEntry | FileSystemRights.WriteData | FileSystemRights.AppendData;
+        private const AccessControlSections AccessAndOwner = AccessControlSections.Access | AccessControlSections.Owner;
+
+        private static bool TrustedOwner(SecurityIdentifier sid) {
+            return sid != null && (sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid) ||
+                sid.IsWellKnown(WellKnownSidType.LocalSystemSid) ||
+                sid.Value == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"); // TrustedInstaller
+        }
+
+        private static void RequireProtectedEntry(FileSystemInfo entry, FileSystemRights changes) {
+            if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("Sign-in startup requires a folder without junctions or symbolic links: " + entry.FullName);
+            DirectoryInfo dir = entry as DirectoryInfo;
+            FileSystemSecurity security = dir != null ? (FileSystemSecurity)dir.GetAccessControl(AccessAndOwner) :
+                ((FileInfo)entry).GetAccessControl(AccessAndOwner);
+            RawSecurityDescriptor descriptor = new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
+            if (!TrustedOwner(descriptor.Owner) || descriptor.DiscretionaryAcl == null)
+                throw new InvalidOperationException("Sign-in startup requires administrator-controlled files: " + entry.FullName);
+            foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier))) {
+                if (rule.AccessControlType == AccessControlType.Allow && (rule.PropagationFlags & PropagationFlags.InheritOnly) == 0 &&
+                    (rule.FileSystemRights & changes) != 0 && !TrustedOwner((SecurityIdentifier)rule.IdentityReference))
+                    throw new InvalidOperationException("Sign-in startup requires files and folders that standard users cannot modify: " + entry.FullName);
+            }
+        }
+
+        internal static void RequireProtectedLocation() {
+            string volume = Path.GetPathRoot(Store.Root);
+            if (volume.Length != 3 || new DriveInfo(volume).DriveType != DriveType.Fixed)
+                throw new InvalidOperationException("Sign-in startup requires a fixed local drive.");
+            RequireProtectedEntry(new FileInfo(Store.Exe), ChangeContents);
+            // Ancestors may allow new siblings as long as users cannot replace the existing path.
+            DirectoryInfo root = new DirectoryInfo(Store.Root);
+            RequireProtectedEntry(root, ChangeContents);
+            for (DirectoryInfo parent = root.Parent; parent != null; parent = parent.Parent)
+                RequireProtectedEntry(parent, ChangeEntry);
+            FileInfo appConfig = new FileInfo(Store.Exe + ".config");
+            if (appConfig.Exists) RequireProtectedEntry(appConfig, ChangeContents);
+            DirectoryInfo profile = new DirectoryInfo(Store.Profile);
+            if (profile.Parent.Exists) RequireProtectedEntry(profile.Parent, ChangeContents);
+            if (profile.Exists) RequireProtectedEntry(profile, ChangeContents);
+            FileInfo catalog = new FileInfo(Store.Catalog);
+            if (catalog.Exists) RequireProtectedEntry(catalog, ChangeContents);
+        }
+
         private static dynamic Service() {
             dynamic scheduler = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", true));
             scheduler.Connect();
             return scheduler;
         }
 
-        internal static bool Enabled() {
+        internal static string EnabledPath() {
             dynamic root = Service().GetFolder("\\");
-            try { return root.GetTask(Name).Enabled; }
+            try {
+                dynamic task = root.GetTask(Name);
+                return task.Enabled ? (string)task.Definition.Actions.Item(1).Path : null;
+            }
             catch (Exception ex) {
-                if (Marshal.GetHRForException(ex) == unchecked((int)0x80070002)) return false;
+                if (Marshal.GetHRForException(ex) == unchecked((int)0x80070002)) return null;
                 throw;
             }
         }
@@ -154,6 +182,7 @@ namespace LauncherBox {
             dynamic scheduler = Service();
             dynamic root = scheduler.GetFolder("\\");
             if (!enable) { root.DeleteTask(Name, 0); return; }
+            RequireProtectedLocation();
             dynamic task = scheduler.NewTask(0);
             task.RegistrationInfo.Description = "Open the LauncherBox library when this account signs in.";
             task.Principal.UserId = Store.Sid;
@@ -412,10 +441,12 @@ namespace LauncherBox {
         }
         private void AutoStatus() {
             try {
-                autoEnabled = Startup.Enabled();
+                string path = Startup.EnabledPath();
+                autoEnabled = path != null;
                 Find<Button>("ToggleAuto").Content = autoEnabled ? "Disable Startup" : "Enable Startup";
                 Find<Button>("ToggleAuto").IsEnabled = true;
-                Find<TextBlock>("AutoState").Text = (autoEnabled ? "Enabled" : "Disabled") + "  ·  " + WindowsIdentity.GetCurrent().Name;
+                Find<TextBlock>("AutoState").Text = autoEnabled && !String.Equals(path, Store.Exe, StringComparison.OrdinalIgnoreCase) ?
+                    "Enabled for another copy: " + path : (autoEnabled ? "Enabled" : "Disabled") + "  ·  " + WindowsIdentity.GetCurrent().Name;
             } catch (Exception ex) {
                 Find<Button>("ToggleAuto").Content = "Unavailable";
                 Find<Button>("ToggleAuto").IsEnabled = false;
@@ -431,8 +462,8 @@ namespace LauncherBox {
             try {
                 if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
                     throw new InvalidOperationException("Run LauncherBox as administrator.");
-                if (!Store.Install()) return;
                 bool logon = Array.IndexOf(args, "--logon") >= 0;
+                if (logon) Startup.RequireProtectedLocation();
                 bool created;
                 using (Mutex mutex = new Mutex(true, "Local\\LauncherBox." + Store.Sid + (logon ? ".Display" : ".Manager"), out created)) {
                     if (!created) { if (!logon) MessageBox.Show("LauncherBox is already open.", "LauncherBox"); return; }

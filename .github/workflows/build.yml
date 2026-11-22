@@ -18,8 +18,21 @@ jobs:
       - name: Compile LauncherBox for Windows x64
         shell: cmd
         run: call Build.cmd
+      - name: Check portable profile location
+        shell: powershell
+        run: |
+          $portable = Join-Path $env:RUNNER_TEMP 'LauncherBox portable check'
+          New-Item -ItemType Directory -Path $portable | Out-Null
+          $exe = Join-Path $portable 'LauncherBox.exe'
+          Copy-Item 'dist/LauncherBox.exe' -Destination $exe
+          $store = [Reflection.Assembly]::LoadFile($exe).GetType('LauncherBox.Store', $true)
+          $games = $store.GetMethod('Load', 'NonPublic, Static').Invoke($null, $null)
+          $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          if ($games.Count -ne 2 -or !(Test-Path (Join-Path $portable "Profiles\$sid") -PathType Container)) {
+            throw 'LauncherBox did not load its library from the portable folder.'
+          }
       - uses: actions/upload-artifact@v6
         with:
-          name: LauncherBox-Windows-x64
+          name: LauncherBox-Portable-Windows-x64
           path: dist/LauncherBox.exe
           if-no-files-found: error
