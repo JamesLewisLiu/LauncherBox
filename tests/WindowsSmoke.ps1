@@ -106,20 +106,6 @@ try {
     $window.Close()
 }
 
-$keyboardLauncher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false, $true), $null)
-$keyboardWindow = $launcherType.GetField('Win', $instance).GetValue($keyboardLauncher)
-try {
-    $keyboardWindow.Show()
-    $inputs = $launcherType.GetField('devices', $instance).GetValue($keyboardLauncher)
-    foreach ($field in 'direct', 'xinput', 'midi') {
-        if ($null -ne $inputs.GetType().GetField($field, $instance).GetValue($inputs)) {
-            throw 'Keyboard-only mode initialized a hardware input backend.'
-        }
-    }
-} finally {
-    $keyboardWindow.Close()
-}
-
 $game = [Activator]::CreateInstance($assembly.GetType('LauncherBox.Game', $true))
 $game.Name = 'Portable ' + [char]0x6E38 + "'s game"
 $game.Bat = 'D:\Games\portable demo.bat'
@@ -133,6 +119,21 @@ $image = $store.GetMethod('Image', $static)
 if ($saved.Count -ne 1 -or $saved[0].Name -ne $game.Name -or $saved[0].Bat -ne $game.Bat -or
     $null -eq $image.Invoke($null, @($saved[0].Art)) -or (Test-Path $legacyRoot)) {
     throw 'The SQLite game library and screenshot did not round trip.'
+}
+
+$keyboardLauncher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false, $true), $null)
+$keyboardWindow = $launcherType.GetField('Win', $instance).GetValue($keyboardLauncher)
+try {
+    $keyboardWindow.Show()
+    Wait-ForWindow { $null -ne $keyboardWindow.FindName('Cover').Source } 'the asynchronously loaded screenshot'
+    $inputs = $launcherType.GetField('devices', $instance).GetValue($keyboardLauncher)
+    foreach ($field in 'direct', 'xinput', 'midi') {
+        if ($null -ne $inputs.GetType().GetField($field, $instance).GetValue($inputs)) {
+            throw 'Keyboard-only mode initialized a hardware input backend.'
+        }
+    }
+} finally {
+    $keyboardWindow.Close()
 }
 
 $mapType = $assembly.GetType('LauncherBox.KeyMap', $true)

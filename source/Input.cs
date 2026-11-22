@@ -185,7 +185,7 @@ namespace LauncherBox {
             if (midi == null) return;
             midi.ResetControls();
             nextScan = DateTime.MinValue;
-            Task release = Task.WhenAll(direct.Suspend(), xinput.Suspend(), Task.Run(midi.Suspend));
+            Task release = Task.WhenAll(direct.Suspend(), xinput.Suspend(), Task.Run(new Action(midi.Suspend)));
             if (await Task.WhenAny(release, Task.Delay(1200)) == release) await release;
             else Log.Info("Timed out waiting for game controllers or MIDI ports to be released.");
         }
@@ -200,7 +200,7 @@ namespace LauncherBox {
             if (!window.IsDisposed) window.RemoveHook(OnMessage);
             direct.Dispose();
             xinput.Dispose();
-            Task.Run(midi.Dispose);
+            Task.Run(new Action(midi.Dispose));
         }
     }
 
