@@ -306,7 +306,9 @@ namespace LauncherBox {
                 return;
             }
             if (key == Key.Tab) { showTabFocus = true; return; }
-            // Key bindings use the Win32 state poll. Keep the focused button's normal Tab navigation.
+            // The Win32 poll handles these bindings; do not let WPF move button focus as well.
+            if (key == Key.Left || key == Key.Right) { e.Handled = true; return; }
+            // Keep normal button activation after Tab navigation.
             if ((key == Key.Enter || key == Key.Space) && !HasButtonFocus()) e.Handled = true;
         }
 

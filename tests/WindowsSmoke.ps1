@@ -203,6 +203,34 @@ try {
     $start = $keyboardWindow.FindName('StartGame')
     $setting = $keyboardWindow.FindName('GameSetting')
     $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
+    $keyboardWindow.Activate() | Out-Null
+    Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus for library navigation'
+    [System.Windows.Input.Keyboard]::Focus($start) | Out-Null
+    $source = [System.Windows.PresentationSource]::FromVisual($start)
+    $keyboard = [System.Windows.Input.Keyboard]::PrimaryDevice
+    $preview = [System.Windows.Input.Keyboard]::PreviewKeyDownEvent
+    $tab = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, [System.Windows.Input.Key]::Tab)
+    $tab.RoutedEvent = $preview
+    $start.RaiseEvent($tab)
+    if ($tab.Handled) { throw 'The main window should allow normal Tab navigation.' }
+
+    $keySignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static)
+    $routeInput = $launcherType.GetMethod('RouteInput', $instance)
+    $index = $launcherType.GetField('Index', $instance)
+    foreach ($direction in 'Right', 'Left') {
+        $key = [System.Windows.Input.Key]$direction
+        $event = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
+        $event.RoutedEvent = $preview
+        $start.RaiseEvent($event)
+        if (!$event.Handled) { throw "$direction was allowed to move WPF focus." }
+        $inputSignal = $keySignal.Invoke($null, @($key))
+        $expectedIndex = if ($direction -eq 'Right') { 1 } else { 0 }
+        if (!$routeInput.Invoke($keyboardLauncher, @($inputSignal)) -or $index.GetValue($keyboardLauncher) -ne $expectedIndex -or
+            [System.Windows.Input.Keyboard]::FocusedElement -ne $start) {
+            throw "$direction should switch games without moving button focus."
+        }
+    }
+
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the screenshot to run the Launch BAT'
     if ((Get-Content $startMarker -Raw).Trim() -ne '"Band & Stage" "literal %TEMP%" "!LIVE!"') {
@@ -221,9 +249,8 @@ try {
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
-    $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
-        $null, @([System.Windows.Input.Key]::Enter))
-    if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
+    $keyboardSignal = $keySignal.Invoke($null, @([System.Windows.Input.Key]::Enter))
+    if (!$routeInput.Invoke($keyboardLauncher, @($keyboardSignal))) {
         throw 'The default START input was not handled.'
     }
     Wait-ForWindow { (Test-Path $zeroMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the shared Launch BAT with argument 0'
