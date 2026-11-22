@@ -41,6 +41,8 @@ namespace LauncherBox {
             using (Stream input = Resource(name)) window = (Window)XamlReader.Load(input);
             using (Stream theme = Resource("Theme.xaml"))
                 window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Load(theme));
+            window.FontFamily = new FontFamily(new Uri("pack://application:,,,/LauncherBox;component/"),
+                "./fonts/#VT323, Microsoft YaHei UI, Segoe UI");
             using (Stream icon = Resource("LauncherBox.ico"))
                 window.Icon = BitmapFrame.Create(icon, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
             Log.Info(name + " layout loaded.");

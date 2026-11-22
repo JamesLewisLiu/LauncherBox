@@ -67,6 +67,18 @@ try {
     if ($null -ne $bindingsField.GetValue($launcher)) { throw 'Startup settings loaded while SQLite was locked.' }
     $execute.Invoke($lock, @('COMMIT', [object[]]@()))
     Wait-ForWindow { $null -ne $bindingsField.GetValue($launcher) } 'the unlocked SQLite settings'
+    $pixelFontLoaded = $false
+    foreach ($typeface in $window.FindName('GameName').FontFamily.GetTypefaces()) {
+        $glyph = $null
+        if ($typeface.TryGetGlyphTypeface([ref]$glyph) -and $glyph.FamilyNames.Values -contains 'VT323') {
+            $pixelFontLoaded = $true
+            break
+        }
+    }
+    if (!$pixelFontLoaded -or $window.FindName('GameName').Foreground.Color.ToString() -ne '#FF33FF33' -or
+        $window.FindName('Previous').Content.Height -ne 50 -or $window.FindName('Next').Content.Height -ne 50) {
+        throw 'The embedded pixel font, terminal green, or enlarged arrows did not load.'
+    }
     $window.Activate() | Out-Null
     $deviceInput = $launcherType.GetField('devices', $instance).GetValue($launcher)
     foreach ($field in 'direct', 'xinput') {

@@ -24,5 +24,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: LauncherBox-Portable-Windows-x64
-          path: dist/LauncherBox.exe
+          path: |
+            dist/LauncherBox.exe
+            dist/VT323-LICENSE.txt
           if-no-files-found: error

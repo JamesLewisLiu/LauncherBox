@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="LauncherBox" Width="1160" Height="760" MinWidth="480" MinHeight="320"
         WindowStartupLocation="CenterScreen" Background="Black" Foreground="White"
-        FontFamily="Segoe UI" UseLayoutRounding="True">
+        FontSize="18" UseLayoutRounding="True">
   <Grid Margin="24,16">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -16,32 +16,37 @@
       <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="25" Text="&#xE713;" />
     </Button>
     <TextBlock x:Name="GameName" Grid.Row="1" Foreground="{DynamicResource Accent}"
-               FontWeight="SemiBold" FontSize="36" Margin="12,0,12,16"
+               FontSize="46" Margin="12,0,12,16"
                TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="48"/>
+        <ColumnDefinition Width="76"/>
         <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="48"/>
+        <ColumnDefinition Width="76"/>
       </Grid.ColumnDefinitions>
-      <Button x:Name="Previous" VerticalAlignment="Center" Height="56"
+      <Button x:Name="Previous" VerticalAlignment="Center" Height="84"
               ToolTip="Previous game" AutomationProperties.Name="Previous game">
-        <TextBlock Text="&#x276E;" FontSize="23"/>
+        <Path Data="{DynamicResource NavigationChevron}" Width="36" Height="50" Stretch="Uniform"
+              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
       </Button>
       <Image x:Name="Cover" Grid.Column="1" Stretch="Uniform"
              RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="Game screenshot"/>
       <TextBlock x:Name="EmptyLibrary" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
-                 Foreground="#A8A8A8" Text="No games. Open Settings to add a game."/>
-      <Button x:Name="Next" Grid.Column="2" VerticalAlignment="Center" Height="56"
+                 Foreground="#A8A8A8" TextAlignment="Center" TextWrapping="Wrap"
+                 Text="No games. Open Settings to add a game."/>
+      <Button x:Name="Next" Grid.Column="2" VerticalAlignment="Center" Height="84"
               ToolTip="Next game" AutomationProperties.Name="Next game">
-        <TextBlock Text="&#x276F;" FontSize="23"/>
+        <Path Data="{DynamicResource NavigationChevron}" Width="36" Height="50" Stretch="Uniform"
+              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+          <Path.LayoutTransform><ScaleTransform ScaleX="-1"/></Path.LayoutTransform>
+        </Path>
       </Button>
     </Grid>
 
     <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,8,0,0">
-      <Button x:Name="Play" HorizontalAlignment="Center" FontWeight="SemiBold" FontSize="18"/>
-      <TextBlock x:Name="Status" Margin="0,4,0,0" TextAlignment="Center" Foreground="#A8A8A8" FontSize="13"/>
+      <Button x:Name="Play" HorizontalAlignment="Center" FontSize="24"/>
+      <TextBlock x:Name="Status" Margin="0,4,0,0" TextAlignment="Center" Foreground="#A8A8A8"/>
     </StackPanel>
   </Grid>
 </Window>
