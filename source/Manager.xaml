@@ -1,0 +1,20 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Manage Games · LauncherBox" Width="780" Height="540" MinWidth="650" MinHeight="490" WindowStartupLocation="CenterOwner" Background="#101F2A" Foreground="#ECF3EF" FontFamily="Segoe UI">
+ <Window.Resources>
+  <Style TargetType="Button"><Setter Property="Padding" Value="12,6"/><Setter Property="Margin" Value="3"/><Setter Property="MinHeight" Value="31"/></Style>
+  <Style TargetType="TextBox"><Setter Property="Padding" Value="6"/><Setter Property="FontSize" Value="14"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+ </Window.Resources>
+ <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <TextBlock Text="Manage Games" FontSize="25" FontWeight="Bold" Margin="0,0,0,14"/>
+ <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="195"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+ <DockPanel Margin="0,0,16,0"><UniformGrid DockPanel.Dock="Bottom" Rows="1"><Button x:Name="Add" Content="Add"/><Button x:Name="Remove" Content="Remove"/></UniformGrid><ListBox x:Name="Entries" FontSize="15" DisplayMemberPath="Name" Padding="4" Background="#192F3A" Foreground="White" BorderBrush="#48616A" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/></DockPanel>
+ <StackPanel Grid.Column="1">
+  <TextBlock Text="Game name"/><TextBox x:Name="TitleBox" Margin="0,5,0,12" MaxLength="80"/>
+  <TextBlock Text="Launch script (.bat)"/><DockPanel Margin="0,5,0,12"><Button x:Name="BrowseBat" DockPanel.Dock="Right" Content="Browse"/><TextBox x:Name="BatBox" IsReadOnly="True"/></DockPanel>
+  <TextBlock Text="Screenshot (optional)"/><DockPanel Margin="0,5,0,9"><Button x:Name="BrowseCover" DockPanel.Dock="Right" Content="Browse"/><TextBox x:Name="ImageBox" IsReadOnly="True"/></DockPanel>
+  <TextBlock Text="The BAT file runs from its own folder. If you edit it, select it again and save." TextWrapping="Wrap" Foreground="#B4C7CC" FontSize="12"/>
+  <Button HorizontalAlignment="Right" x:Name="Save" Content="Save Game" Margin="0,12,0,0"/>
+ </StackPanel></Grid>
+ <Border Grid.Row="2" Margin="0,12,0,5" BorderBrush="#35505B" BorderThickness="0,1,0,0" Padding="0,12,0,0"><DockPanel><Button x:Name="ToggleAuto" DockPanel.Dock="Right"/><StackPanel><TextBlock Text="Start at sign-in" FontWeight="Bold"/><TextBlock x:Name="AutoState" Foreground="#B4C7CC" FontSize="12" TextWrapping="Wrap"/></StackPanel></DockPanel></Border>
+ <Button x:Name="Done" Grid.Row="3" Content="Back to Library" HorizontalAlignment="Right"/>
+ </Grid>
+</Window>
