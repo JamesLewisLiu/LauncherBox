@@ -209,7 +209,9 @@ try {
     $source = [System.Windows.PresentationSource]::FromVisual($start)
     $keyboard = [System.Windows.Input.Keyboard]::PrimaryDevice
     $previewKey = $launcherType.GetMethod('OnKey', $instance)
+    $previewKeyDown = [System.Windows.Input.Keyboard]::PreviewKeyDownEvent
     $tab = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, [System.Windows.Input.Key]::Tab)
+    $tab.RoutedEvent = $previewKeyDown
     $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $tab))
     if ($tab.Handled) { throw 'The main window should allow normal Tab navigation.' }
 
@@ -219,6 +221,7 @@ try {
     foreach ($direction in 'Right', 'Left') {
         $key = [System.Windows.Input.Key]$direction
         $arrowEvent = [System.Windows.Input.KeyEventArgs]::new($keyboard, $source, 0, $key)
+        $arrowEvent.RoutedEvent = $previewKeyDown
         $previewKey.Invoke($keyboardLauncher, @($keyboardWindow, $arrowEvent))
         if (!$arrowEvent.Handled) { throw "$direction was allowed to move WPF focus." }
         $inputSignal = $keySignal.Invoke($null, @($key))
