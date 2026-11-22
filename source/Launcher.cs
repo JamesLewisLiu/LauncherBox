@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -28,6 +29,7 @@ namespace LauncherBox {
         public string Art { get; set; }
         public string SettingsBat { get; set; }
         public string SettingsHash { get; set; }
+        public string LaunchArguments { get; set; }
     }
 
     internal static partial class Store {
@@ -36,6 +38,7 @@ namespace LauncherBox {
         internal static readonly string Root = Path.GetDirectoryName(Exe);
         internal static readonly string DatabasePath = Path.Combine(Root, "LauncherBox.db");
         private static readonly string LegacyRoot = Path.Combine(Root, "Profiles");
+        private static readonly char[] BatchSeparators = { ' ', '\t', '&', '|', '<', '>', '^', '(', ')', '=', ',', ';', '%', '!' };
 
         internal static Window WindowFrom(string name) {
             Log.Info("Loading " + name + " layout.");
@@ -66,6 +69,38 @@ namespace LauncherBox {
                 !String.Equals(Path.GetExtension(path), ".bat", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Select a .bat file on a local drive.");
             return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        }
+
+        internal static string FormatLaunchArguments(string input) {
+            if (String.IsNullOrEmpty(input)) return "";
+            if (input.Length > 2048) throw new InvalidDataException("Launch arguments must be 2048 characters or fewer.");
+            List<string> words = new List<string>();
+            StringBuilder word = new StringBuilder();
+            bool inQuotes = false;
+            bool started = false;
+            foreach (char character in input) {
+                if (Char.IsControl(character) && character != '\t')
+                    throw new InvalidDataException("Launch arguments must be on a single line without control characters.");
+                if (character == '"') {
+                    inQuotes = !inQuotes;
+                    started = true;
+                } else if (!inQuotes && (character == ' ' || character == '\t')) {
+                    if (!started) continue;
+                    words.Add(QuoteBatchArgument(word.ToString()));
+                    word.Clear();
+                    started = false;
+                } else {
+                    word.Append(character);
+                    started = true;
+                }
+            }
+            if (inQuotes) throw new InvalidDataException("Close each double quote in the launch arguments.");
+            if (started) words.Add(QuoteBatchArgument(word.ToString()));
+            return String.Join(" ", words);
+        }
+
+        private static string QuoteBatchArgument(string word) {
+            return word.Length == 0 || word.IndexOfAny(BatchSeparators) >= 0 ? "\"" + word + "\"" : word;
         }
 
         internal static BitmapImage Decode(Stream input) {
@@ -382,6 +417,7 @@ namespace LauncherBox {
             if (String.IsNullOrEmpty(path)) { Manage(); return; }
             string action = settings ? "Opening the game setting" : "Launching the game";
             try {
+                string arguments = settings ? "" : Store.FormatLaunchArguments(game.LaunchArguments);
                 batchLock = Store.OpenBatch(path);
                 if (!String.Equals(Store.Digest(batchLock), hash, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("The BAT file has changed. Open LauncherBox manually, select the file again in Settings, and save.");
@@ -389,8 +425,13 @@ namespace LauncherBox {
                 info.UseShellExecute = false;
                 info.WorkingDirectory = Path.GetDirectoryName(path);
                 info.EnvironmentVariables["LAUNCHERBOX_SELECTED_BATCH"] = path;
-                // Single expansion preserves literal %, !, &, spaces and parentheses in the selected path.
-                info.Arguments = "/d /v:off /s /c \"\"%LAUNCHERBOX_SELECTED_BATCH%\"\"";
+                // Expand the path and safely quoted arguments once with delayed expansion disabled.
+                string command = "\"%LAUNCHERBOX_SELECTED_BATCH%\"";
+                if (arguments.Length > 0) {
+                    info.EnvironmentVariables["LAUNCHERBOX_BATCH_ARGUMENTS"] = arguments;
+                    command += " %LAUNCHERBOX_BATCH_ARGUMENTS%";
+                }
+                info.Arguments = "/d /v:off /s /c \"" + command + "\"";
                 Process process = new Process { StartInfo = info, EnableRaisingEvents = true };
                 process.Exited += delegate {
                     Win.Dispatcher.BeginInvoke(new Action(delegate {
@@ -450,6 +491,7 @@ namespace LauncherBox {
                 Populate(next);
             };
             Find<TextBox>("TitleBox").TextChanged += delegate { if (!binding) dirty = true; };
+            Find<TextBox>("LaunchArgumentsBox").TextChanged += delegate { if (!binding) dirty = true; };
             Find<Button>("Add").Click += delegate {
                 if (!Discard()) return;
                 Rebind(null);
@@ -624,6 +666,7 @@ namespace LauncherBox {
             if (game != null) launcher.Index = launcher.Games.IndexOf(game);
             Find<TextBox>("TitleBox").Text = game == null ? "" : game.Name;
             Find<TextBox>("BatBox").Text = game == null ? "" : game.Bat;
+            Find<TextBox>("LaunchArgumentsBox").Text = game == null ? "" : game.LaunchArguments;
             Find<TextBox>("SettingsBatBox").Text = game == null ? "" : game.SettingsBat;
             Find<Button>("ClearSettingsBat").IsEnabled = game != null && !String.IsNullOrEmpty(game.SettingsBat);
             Find<TextBox>("ImageBox").Text = game != null && !String.IsNullOrEmpty(game.Art) ? "Saved screenshot" : "";
@@ -640,10 +683,13 @@ namespace LauncherBox {
             string path = Find<TextBox>("BatBox").Text;
             if (name.Length == 0) throw new InvalidDataException("Enter a game name.");
             if (String.IsNullOrWhiteSpace(path)) throw new InvalidDataException("Select a .bat file to launch this game.");
+            string arguments = Find<TextBox>("LaunchArgumentsBox").Text.Trim();
+            Store.FormatLaunchArguments(arguments);
             string settingsPath = Find<TextBox>("SettingsBatBox").Text;
             Game game = new Game {
                 Name = name, Bat = path, Hash = BatchHash(path, selected == null ? null : selected.Hash, pickedBatch),
-                Art = selected == null ? null : selected.Art
+                Art = selected == null ? null : selected.Art,
+                LaunchArguments = arguments.Length > 0 ? arguments : null
             };
             if (!String.IsNullOrWhiteSpace(settingsPath)) {
                 game.SettingsBat = settingsPath;

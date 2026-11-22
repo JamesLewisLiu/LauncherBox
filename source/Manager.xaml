@@ -48,6 +48,10 @@
                 <Button x:Name="BrowseBat" DockPanel.Dock="Right" Content="Browse"/>
                 <TextBox x:Name="BatBox" IsReadOnly="True"/>
               </DockPanel>
+              <TextBlock Text="Launch arguments (optional)"/>
+              <TextBox x:Name="LaunchArgumentsBox" Margin="0,5,0,10" MaxLength="2048"
+                       AutomationProperties.Name="Launch arguments"
+                       ToolTip="Arguments passed to Launch BAT, such as 0 or &quot;My game&quot;."/>
               <TextBlock Text="Setting BAT (optional)"/>
               <DockPanel Margin="0,5,0,10">
                 <Button x:Name="ClearSettingsBat" DockPanel.Dock="Right" Content="Clear"/>

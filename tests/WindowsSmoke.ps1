@@ -125,9 +125,25 @@ $settingsDir = Join-Path $portable 'Setting BAT'
 New-Item -ItemType Directory -Path $startDir, $settingsDir | Out-Null
 $launchBat = Join-Path $startDir 'start game.bat'
 $settingBat = Join-Path $settingsDir 'game setting.bat'
-'@echo off', '>start.marker echo START' | Set-Content -Path $launchBat -Encoding ASCII
-'@echo off', '>setting.marker echo SETTING' | Set-Content -Path $settingBat -Encoding ASCII
-$startMarker = Join-Path $startDir 'start.marker'
+@'
+@echo off
+setlocal DisableDelayedExpansion
+for %%G in (1 2 3 4 5 6 7 8 9) do if "%~1"=="%%G" goto game%%G
+if "%~1"=="0" goto game10
+if not "%~1"=="" exit /b 2
+>manual.marker echo MENU
+exit /b 0
+:game1
+>start-1.marker echo "%~2" "%~3" "%~4"
+exit /b 0
+:game10
+>start-0.marker echo ZERO
+exit /b 0
+'@ | Set-Content -Path $launchBat -Encoding ASCII
+'@echo off', '>setting.marker echo "%~1"' | Set-Content -Path $settingBat -Encoding ASCII
+$startMarker = Join-Path $startDir 'start-1.marker'
+$zeroMarker = Join-Path $startDir 'start-0.marker'
+$manualMarker = Join-Path $startDir 'manual.marker'
 $settingMarker = Join-Path $settingsDir 'setting.marker'
 $game.Bat = $launchBat
 $game.Hash = (Get-FileHash $launchBat).Hash
@@ -135,10 +151,22 @@ $game.Art = [Guid]::NewGuid().ToString('N') + '.png'
 $png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgmMkAAAE2AJrwJL1AAAAAAElFTkSuQmCC')
 $updated = [Activator]::CreateInstance($games.GetType())
 $updated.Add($game)
+$otherGame = [Activator]::CreateInstance($game.GetType())
+$otherGame.Name = 'Zero game'
+$otherGame.Bat = $game.Bat
+$otherGame.Hash = $game.Hash
+$otherGame.LaunchArguments = '0'
+$updated.Add($otherGame)
+$manualGame = [Activator]::CreateInstance($game.GetType())
+$manualGame.Name = 'Shared BAT menu'
+$manualGame.Bat = $game.Bat
+$manualGame.Hash = $game.Hash
+$updated.Add($manualGame)
 $store.GetMethod('Save', $static).Invoke($null, @($games, $updated, $game.Art, $png))
 $saved = $load.Invoke($null, @($false))
 $image = $store.GetMethod('Image', $static)
-if ($saved.Count -ne 1 -or $saved[0].Name -ne $game.Name -or $saved[0].Bat -ne $game.Bat -or
+if ($saved.Count -ne 3 -or $saved[0].Name -ne $game.Name -or $saved[0].Bat -ne $game.Bat -or
+    $saved[1].Bat -ne $game.Bat -or $saved[1].LaunchArguments -ne '0' -or
     $null -eq $image.Invoke($null, @($saved[0].Art)) -or (Test-Path $legacyRoot)) {
     throw 'The SQLite game library and screenshot did not round trip.'
 }
@@ -158,14 +186,16 @@ try {
     $editorType = $assembly.GetType('LauncherBox.Editor', $true)
     $editor = $editorType.GetConstructor($instance, $null, @($launcherType), $null).Invoke(@($keyboardLauncher))
     $editorWindow = $editorType.GetField('win', $instance).GetValue($editor)
+    $arguments = '1 "Band & Stage" "literal %TEMP%" "!LIVE!"'
     try {
         $editorWindow.FindName('SettingsBatBox').Text = $settingBat
+        $editorWindow.FindName('LaunchArgumentsBox').Text = $arguments
         $editorType.GetMethod('Save', $instance).Invoke($editor, $null)
     } finally {
         $editorWindow.Close()
     }
     $withSetting = $load.Invoke($null, @($false))
-    if ($withSetting[0].SettingsBat -ne $settingBat -or
+    if ($withSetting[0].SettingsBat -ne $settingBat -or $withSetting[0].LaunchArguments -ne $arguments -or
         $withSetting[0].SettingsHash -ne (Get-FileHash $settingBat).Hash -or $withSetting[0].Hash -ne $game.Hash) {
         throw 'The game editor did not save the Setting BAT independently of the Launch BAT.'
     }
@@ -175,13 +205,20 @@ try {
     $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the screenshot to run the Launch BAT'
+    if ((Get-Content $startMarker -Raw).Trim() -ne '"Band & Stage" "literal %TEMP%" "!LIVE!"') {
+        throw 'The BAT did not receive the launch arguments literally and in order.'
+    }
     if (Test-Path $settingMarker) { throw 'Clicking the screenshot ran the Setting BAT.' }
     Remove-Item $startMarker
 
     $setting.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $setting))
     Wait-ForWindow { (Test-Path $settingMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'Setting to run its BAT'
-    if (Test-Path $startMarker) { throw 'Clicking Setting ran the Launch BAT.' }
+    if ((Test-Path $startMarker) -or (Get-Content $settingMarker -Raw).Trim() -ne '""') {
+        throw 'Clicking Setting should call only the Setting BAT without launch arguments.'
+    }
 
+    $next = $keyboardWindow.FindName('Next')
+    $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
     $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
@@ -189,7 +226,12 @@ try {
     if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
         throw 'The default START input was not handled.'
     }
-    Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the Launch BAT'
+    Wait-ForWindow { (Test-Path $zeroMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the shared Launch BAT with argument 0'
+    if (Test-Path $startMarker) { throw 'The second game ran with the first game arguments.' }
+
+    $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
+    $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
+    Wait-ForWindow { (Test-Path $manualMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the shared Launch BAT to run without arguments'
 } finally {
     $keyboardWindow.Close()
 }
@@ -241,28 +283,40 @@ if ($null -eq $image.Invoke($null, @($migrated[0].Art)) -or $load.Invoke($null, 
 }
 
 Move-Item $dbPath (Join-Path $portable 'legacy.db')
-$v1 = $sqlite.GetConstructor($instance, $null, @([string]), $null).Invoke(@("$dbPath"))
-try {
-    foreach ($sql in @(
-        'CREATE TABLE games (position INTEGER PRIMARY KEY, name TEXT, bat TEXT, hash TEXT, art TEXT)',
-        "INSERT INTO games VALUES (0, 'Version one game', 'D:\Games\start.bat', 'V1HASH', NULL)",
-        'CREATE TABLE settings (id INTEGER PRIMARY KEY, bindings_saved INTEGER NOT NULL)',
-        'INSERT INTO settings VALUES (1, 1)',
-        'CREATE TABLE bindings (position INTEGER PRIMARY KEY, action INTEGER NOT NULL, source INTEGER NOT NULL, device TEXT, code TEXT, label TEXT)',
-        "INSERT INTO bindings VALUES (0, 2, 3, 'test-port', '1:note:60', 'Version one START')",
-        'CREATE TABLE screenshots (id TEXT PRIMARY KEY, png BLOB NOT NULL)',
-        'PRAGMA user_version = 1'
-    )) {
-        $execute.Invoke($v1, @($sql, [object[]]@()))
+foreach ($schema in 1, 2) {
+    $old = $sqlite.GetConstructor($instance, $null, @([string]), $null).Invoke(@("$dbPath"))
+    try {
+        $ddl = 'CREATE TABLE games (position INTEGER PRIMARY KEY, name TEXT, bat TEXT, hash TEXT, art TEXT'
+        $row = "INSERT INTO games VALUES (0, 'Existing game', 'D:\Games\start.bat', 'LAUNCHHASH', NULL"
+        $expectedSetting = $null
+        if ($schema -eq 2) {
+            $expectedSetting = 'D:\Games\setting.bat'
+            $ddl += ', settings_bat TEXT, settings_hash TEXT'
+            $row += ", '$expectedSetting', 'SETTINGHASH'"
+        }
+        foreach ($sql in @(
+            "$ddl)",
+            "$row)",
+            'CREATE TABLE settings (id INTEGER PRIMARY KEY, bindings_saved INTEGER NOT NULL)',
+            'INSERT INTO settings VALUES (1, 1)',
+            'CREATE TABLE bindings (position INTEGER PRIMARY KEY, action INTEGER NOT NULL, source INTEGER NOT NULL, device TEXT, code TEXT, label TEXT)',
+            "INSERT INTO bindings VALUES (0, 2, 3, 'test-port', '1:note:60', 'Existing START')",
+            'CREATE TABLE screenshots (id TEXT PRIMARY KEY, png BLOB NOT NULL)',
+            "PRAGMA user_version = $schema"
+        )) {
+            $execute.Invoke($old, @([string]$sql, [object[]]@()))
+        }
+    } finally {
+        $old.Dispose()
     }
-} finally {
-    $v1.Dispose()
+    $upgraded = $load.Invoke($null, @($false))
+    $upgradedMap = [Activator]::CreateInstance($mapType, $true)
+    $upgradedBinding = $mapType.GetMethod('Match', $instance).Invoke($upgradedMap, @($signal))
+    if ($upgraded.Count -ne 1 -or $upgraded[0].Hash -ne 'LAUNCHHASH' -or
+        $upgraded[0].SettingsBat -ne $expectedSetting -or $null -ne $upgraded[0].LaunchArguments -or
+        $upgradedBinding.Label -ne 'Existing START') {
+        throw "The SQLite upgrade from version $schema did not preserve existing settings."
+    }
+    Move-Item $dbPath (Join-Path $portable "upgraded-$schema.db")
 }
-$upgraded = $load.Invoke($null, @($false))
-$upgradedMap = [Activator]::CreateInstance($mapType, $true)
-$upgradedBinding = $mapType.GetMethod('Match', $instance).Invoke($upgradedMap, @($signal))
-if ($upgraded.Count -ne 1 -or $upgraded[0].Hash -ne 'V1HASH' -or $null -ne $upgraded[0].SettingsBat -or
-    $upgradedBinding.Label -ne 'Version one START') {
-    throw 'The SQLite upgrade did not preserve the existing game or START binding.'
-}
-Write-Host 'Verified fullscreen, native inputs, screenshot and START launch, independent Setting BAT, and database upgrades.'
+Write-Host 'Verified fullscreen, native inputs, shared BAT arguments, independent Setting BAT, and database upgrades.'

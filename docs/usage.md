@@ -20,6 +20,8 @@ MIDI supports note strikes, control-change values crossing 64, and pitch bends i
 
 Each BAT runs with administrator privileges in its own folder. Use trusted scripts and keep them and their dependencies in locations standard users cannot modify. LauncherBox checks the SHA-256 hash for each BAT. If you edit either script, select it again in **Settings → Games** and save.
 
+Games can share one **Launch BAT** and use different **Launch arguments**. Read the values in the BAT with `%~1`, `%~2`, and so on. Use double quotes around arguments containing spaces. Leave the field blank to run the BAT without arguments.
+
 LauncherBox returns when the BAT process exits. If the BAT uses `start` to launch a game, add `/wait` to return after the game closes.
 
 ```bat

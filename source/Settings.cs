@@ -6,27 +6,30 @@ using System.Xml.Serialization;
 
 namespace LauncherBox {
     internal static partial class Store {
-        private const int SchemaVersion = 2;
+        private const int SchemaVersion = 3;
 
         private static Sqlite OpenSettings(bool protectedStartup = false) {
             Sqlite db = new Sqlite(DatabasePath);
             try {
                 int version = ReadSchemaVersion(db);
-                if (version == 0 || version == 1) {
+                if (version >= 0 && version < SchemaVersion) {
                     version = db.Write(delegate {
                         int current = ReadSchemaVersion(db);
                         if (current == 0) {
                             db.Execute("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), bindings_saved INTEGER NOT NULL)");
                             db.Execute("INSERT INTO settings VALUES (1, 0)");
                             db.Execute("CREATE TABLE games (position INTEGER PRIMARY KEY, name TEXT, bat TEXT, hash TEXT, art TEXT, " +
-                                "settings_bat TEXT, settings_hash TEXT)");
+                                "settings_bat TEXT, settings_hash TEXT, launch_arguments TEXT)");
                             db.Execute("CREATE TABLE screenshots (id TEXT PRIMARY KEY, png BLOB NOT NULL)");
                             db.Execute("CREATE TABLE bindings (position INTEGER PRIMARY KEY, action INTEGER NOT NULL, " +
                                 "source INTEGER NOT NULL, device TEXT, code TEXT, label TEXT)");
                             ImportLegacy(db, protectedStartup);
-                        } else if (current == 1) {
-                            db.Execute("ALTER TABLE games ADD COLUMN settings_bat TEXT");
-                            db.Execute("ALTER TABLE games ADD COLUMN settings_hash TEXT");
+                        } else if (current == 1 || current == 2) {
+                            if (current == 1) {
+                                db.Execute("ALTER TABLE games ADD COLUMN settings_bat TEXT");
+                                db.Execute("ALTER TABLE games ADD COLUMN settings_hash TEXT");
+                            }
+                            db.Execute("ALTER TABLE games ADD COLUMN launch_arguments TEXT");
                         } else return current;
                         db.Execute("PRAGMA user_version = " + SchemaVersion);
                         return SchemaVersion;
@@ -53,11 +56,12 @@ namespace LauncherBox {
 
         private static List<Game> ReadGames(Sqlite db) {
             List<Game> games = new List<Game>();
-            using (Sqlite.Statement row = db.Prepare("SELECT name, bat, hash, art, settings_bat, settings_hash FROM games ORDER BY position")) {
+            using (Sqlite.Statement row = db.Prepare(
+                "SELECT name, bat, hash, art, settings_bat, settings_hash, launch_arguments FROM games ORDER BY position")) {
                 while (row.Next()) {
                     games.Add(new Game {
                         Name = row.Text(0), Bat = row.Text(1), Hash = row.Text(2), Art = row.Text(3),
-                        SettingsBat = row.Text(4), SettingsHash = row.Text(5)
+                        SettingsBat = row.Text(4), SettingsHash = row.Text(5), LaunchArguments = row.Text(6)
                     });
                 }
             }
@@ -84,7 +88,8 @@ namespace LauncherBox {
                 Game first = current[i];
                 Game second = original[i];
                 if (first.Name != second.Name || first.Bat != second.Bat || first.Hash != second.Hash || first.Art != second.Art ||
-                    first.SettingsBat != second.SettingsBat || first.SettingsHash != second.SettingsHash)
+                    first.SettingsBat != second.SettingsBat || first.SettingsHash != second.SettingsHash ||
+                    first.LaunchArguments != second.LaunchArguments)
                     return false;
             }
             return true;
@@ -93,10 +98,11 @@ namespace LauncherBox {
         private static void WriteGames(Sqlite db, List<Game> games) {
             db.Execute("DELETE FROM games");
             using (Sqlite.Statement insert = db.Prepare(
-                "INSERT INTO games (position, name, bat, hash, art, settings_bat, settings_hash) VALUES (?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO games (position, name, bat, hash, art, settings_bat, settings_hash, launch_arguments) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
                 for (int i = 0; i < games.Count; i++) {
                     Game game = games[i];
-                    insert.Run(i, game.Name, game.Bat, game.Hash, game.Art, game.SettingsBat, game.SettingsHash);
+                    insert.Run(i, game.Name, game.Bat, game.Hash, game.Art, game.SettingsBat, game.SettingsHash, game.LaunchArguments);
                 }
             }
         }
