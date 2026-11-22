@@ -30,8 +30,24 @@
         <Path Data="{DynamicResource NavigationChevron}" Width="36" Height="50" Stretch="Uniform"
               Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
       </Button>
-      <Image x:Name="Cover" Grid.Column="1" Stretch="Uniform"
-             RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="Game screenshot"/>
+      <Button x:Name="StartGame" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="0"
+              ToolTip="Start game" AutomationProperties.Name="Start game">
+        <Grid>
+          <Image x:Name="Cover" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock Text="START" FontSize="32" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Source, ElementName=Cover}" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </Grid>
+      </Button>
       <TextBlock x:Name="EmptyLibrary" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
                  Foreground="#A8A8A8" TextAlignment="Center" TextWrapping="Wrap"
                  Text="No games. Open Settings to add a game."/>
@@ -45,7 +61,8 @@
     </Grid>
 
     <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,8,0,0">
-      <Button x:Name="Play" HorizontalAlignment="Center" FontSize="24"/>
+      <Button x:Name="GameSetting" Content="Setting" HorizontalAlignment="Center" FontSize="24"
+              AutomationProperties.Name="Game setting"/>
       <TextBlock x:Name="Status" Margin="0,4,0,0" TextAlignment="Center" Foreground="#A8A8A8"/>
     </StackPanel>
   </Grid>

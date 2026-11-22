@@ -26,6 +26,8 @@ namespace LauncherBox {
         public string Bat { get; set; }
         public string Hash { get; set; }
         public string Art { get; set; }
+        public string SettingsBat { get; set; }
+        public string SettingsHash { get; set; }
     }
 
     internal static partial class Store {
@@ -207,7 +209,8 @@ namespace LauncherBox {
             logon = automatic;
             Find<Button>("Previous").Click += delegate { Step(-1); };
             Find<Button>("Next").Click += delegate { Step(1); };
-            Find<Button>("Play").Click += delegate { Launch(); };
+            Find<Button>("StartGame").Click += delegate { RunGameScript(false); };
+            Find<Button>("GameSetting").Click += delegate { RunGameScript(true); };
             Find<Button>("Manage").Click += delegate { Manage(); };
             Find<Button>("Manage").Visibility = logon ? Visibility.Collapsed : Visibility.Visible;
             Find<Button>("Manage").IsEnabled = false;
@@ -300,7 +303,7 @@ namespace LauncherBox {
             switch (action) {
                 case LauncherAction.Previous: Step(-1); break;
                 case LauncherAction.Next: Step(1); break;
-                case LauncherAction.Play: Launch(); break;
+                case LauncherAction.Play: RunGameScript(false); break;
                 case LauncherAction.Settings: Manage(); break;
                 case LauncherAction.Fullscreen: Fullscreen(); break;
                 case LauncherAction.Exit: Win.Close(); break;
@@ -333,14 +336,16 @@ namespace LauncherBox {
             Index = Math.Max(0, Math.Min(Index, Games.Count - 1));
             Game game = Games.Count > 0 ? Games[Index] : null;
             bool ready = game != null && !String.IsNullOrEmpty(game.Bat);
+            bool hasSetting = game != null && !String.IsNullOrEmpty(game.SettingsBat);
             Find<TextBlock>("GameName").Text = game != null ? game.Name : "";
             Find<TextBlock>("GameName").Visibility = game == null ? Visibility.Collapsed : Visibility.Visible;
             Find<TextBlock>("EmptyLibrary").Text = logon ? "No games." : "No games. Open Settings to add a game.";
             Find<TextBlock>("EmptyLibrary").Visibility = game == null && Bindings != null ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("Previous").Visibility = Find<Button>("Next").Visibility = Games.Count > 1 ? Visibility.Visible : Visibility.Hidden;
-            Find<Button>("Play").Content = ready ? "Play" : "Choose a BAT File";
-            Find<Button>("Play").Visibility = game != null && (ready || !logon) ? Visibility.Visible : Visibility.Collapsed;
-            Find<Button>("Play").IsEnabled = running == null && (ready || !logon);
+            Find<Button>("StartGame").Visibility = game != null ? Visibility.Visible : Visibility.Collapsed;
+            Find<Button>("StartGame").IsEnabled = running == null && (ready || !logon);
+            Find<Button>("GameSetting").Visibility = game != null && (hasSetting || !logon) ? Visibility.Visible : Visibility.Collapsed;
+            Find<Button>("GameSetting").IsEnabled = running == null;
             Find<TextBlock>("Status").Text = notice ?? "";
             string art = game == null ? null : game.Art;
             if (art != displayedArt) ShowScreenshot(art);
@@ -368,18 +373,22 @@ namespace LauncherBox {
             Draw(null);
         }
 
-        private async void Launch() {
-            if (running != null) return;
-            if (Games.Count == 0 || String.IsNullOrEmpty(Games[Index].Bat)) { Manage(); return; }
+        private async void RunGameScript(bool settings) {
+            if (running != null || editor != null || Bindings == null) return;
+            if (Games.Count == 0) { Manage(); return; }
             Game game = Games[Index];
+            string path = settings ? game.SettingsBat : game.Bat;
+            string hash = settings ? game.SettingsHash : game.Hash;
+            if (String.IsNullOrEmpty(path)) { Manage(); return; }
+            string action = settings ? "Opening the game setting" : "Launching the game";
             try {
-                batchLock = Store.OpenBatch(game.Bat);
-                if (!String.Equals(Store.Digest(batchLock), game.Hash, StringComparison.OrdinalIgnoreCase))
+                batchLock = Store.OpenBatch(path);
+                if (!String.Equals(Store.Digest(batchLock), hash, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("The BAT file has changed. Open LauncherBox manually, select the file again in Settings, and save.");
                 ProcessStartInfo info = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"));
                 info.UseShellExecute = false;
-                info.WorkingDirectory = Path.GetDirectoryName(game.Bat);
-                info.EnvironmentVariables["LAUNCHERBOX_SELECTED_BATCH"] = game.Bat;
+                info.WorkingDirectory = Path.GetDirectoryName(path);
+                info.EnvironmentVariables["LAUNCHERBOX_SELECTED_BATCH"] = path;
                 // Single expansion preserves literal %, !, &, spaces and parentheses in the selected path.
                 info.Arguments = "/d /v:off /s /c \"\"%LAUNCHERBOX_SELECTED_BATCH%\"\"";
                 Process process = new Process { StartInfo = info, EnableRaisingEvents = true };
@@ -397,14 +406,14 @@ namespace LauncherBox {
                 if (devices != null) await devices.ReleaseForGame();
                 if (closed) return;
                 process.Start();
-                Log.Info("Game process started.");
+                Log.Info(action + ": BAT process started.");
                 beforeGame = Win.WindowState;
                 Win.WindowState = WindowState.Minimized;
                 Draw(null);
             } catch (Exception ex) {
-                Log.Error("Launching the game failed", ex);
+                Log.Error(action + " failed", ex);
                 Release();
-                if (!closed) MessageBox.Show(Win, ex.Message, "Could Not Launch Game", MessageBoxButton.OK, MessageBoxImage.Warning);
+                if (!closed) MessageBox.Show(Win, ex.Message, action + " failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         private WindowState beforeGame;
@@ -414,12 +423,14 @@ namespace LauncherBox {
         }
     }
     internal sealed class Editor {
+        private const string BatchFilter = "Windows batch files (*.bat)|*.bat";
         private readonly Window win = Store.WindowFrom("Manager.xaml");
         private readonly Launcher launcher;
         private readonly ListBox list;
         private Game selected;
         private string pendingArt;
         private bool pickedBatch;
+        private bool pickedSettingsBatch;
         private bool binding;
         private bool dirty;
         private bool autoEnabled;
@@ -445,9 +456,22 @@ namespace LauncherBox {
                 Find<TextBox>("TitleBox").Focus();
             };
             Find<Button>("BrowseBat").Click += delegate {
-                string file = Pick("Windows batch files (*.bat)|*.bat");
+                string file = Pick(BatchFilter);
                 if (file != null) { Find<TextBox>("BatBox").Text = file; pickedBatch = true; dirty = true;
                     if (String.IsNullOrWhiteSpace(Find<TextBox>("TitleBox").Text)) Find<TextBox>("TitleBox").Text = Path.GetFileNameWithoutExtension(file); }
+            };
+            Find<Button>("BrowseSettingsBat").Click += delegate {
+                string file = Pick(BatchFilter);
+                if (file == null) return;
+                Find<TextBox>("SettingsBatBox").Text = file;
+                Find<Button>("ClearSettingsBat").IsEnabled = true;
+                pickedSettingsBatch = true;
+                dirty = true;
+            };
+            Find<Button>("ClearSettingsBat").Click += delegate {
+                Find<TextBox>("SettingsBatBox").Clear();
+                Find<Button>("ClearSettingsBat").IsEnabled = false;
+                dirty = true;
             };
             Find<Button>("BrowseCover").Click += delegate {
                 string file = Pick("Game screenshots (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp");
@@ -595,10 +619,13 @@ namespace LauncherBox {
             binding = true;
             selected = game;
             pickedBatch = false;
+            pickedSettingsBatch = false;
             pendingArt = null;
             if (game != null) launcher.Index = launcher.Games.IndexOf(game);
             Find<TextBox>("TitleBox").Text = game == null ? "" : game.Name;
             Find<TextBox>("BatBox").Text = game == null ? "" : game.Bat;
+            Find<TextBox>("SettingsBatBox").Text = game == null ? "" : game.SettingsBat;
+            Find<Button>("ClearSettingsBat").IsEnabled = game != null && !String.IsNullOrEmpty(game.SettingsBat);
             Find<TextBox>("ImageBox").Text = game != null && !String.IsNullOrEmpty(game.Art) ? "Saved screenshot" : "";
             Find<Button>("Remove").IsEnabled = game != null;
             binding = false;
@@ -613,10 +640,15 @@ namespace LauncherBox {
             string path = Find<TextBox>("BatBox").Text;
             if (name.Length == 0) throw new InvalidDataException("Enter a game name.");
             if (String.IsNullOrWhiteSpace(path)) throw new InvalidDataException("Select a .bat file to launch this game.");
-            string hash = selected == null ? null : selected.Hash;
-            if (pickedBatch || String.IsNullOrEmpty(hash))
-                using (FileStream stream = Store.OpenBatch(path)) hash = Store.Digest(stream);
-            Game game = new Game { Name = name, Bat = path, Hash = hash, Art = selected == null ? null : selected.Art };
+            string settingsPath = Find<TextBox>("SettingsBatBox").Text;
+            Game game = new Game {
+                Name = name, Bat = path, Hash = BatchHash(path, selected == null ? null : selected.Hash, pickedBatch),
+                Art = selected == null ? null : selected.Art
+            };
+            if (!String.IsNullOrWhiteSpace(settingsPath)) {
+                game.SettingsBat = settingsPath;
+                game.SettingsHash = BatchHash(settingsPath, selected == null ? null : selected.SettingsHash, pickedSettingsBatch);
+            }
             byte[] png = String.IsNullOrEmpty(pendingArt) ? null : Store.ImportArt(pendingArt);
             if (png != null) game.Art = Guid.NewGuid().ToString("N") + ".png";
             List<Game> updated = new List<Game>(launcher.Games);
@@ -624,6 +656,11 @@ namespace LauncherBox {
             Store.Save(launcher.Games, updated, game.Art, png);
             launcher.Games = updated;
             Rebind(game);
+        }
+
+        private static string BatchHash(string path, string previous, bool picked) {
+            if (!picked && !String.IsNullOrEmpty(previous)) return previous;
+            using (FileStream stream = Store.OpenBatch(path)) return Store.Digest(stream);
         }
         private void Remove() {
             if (selected == null || MessageBox.Show(win, "Remove '" + selected.Name + "' from the library? The game and BAT file will stay on disk.", "Remove Game", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;

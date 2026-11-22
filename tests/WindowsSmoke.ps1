@@ -120,7 +120,17 @@ try {
 
 $game = [Activator]::CreateInstance($assembly.GetType('LauncherBox.Game', $true))
 $game.Name = 'Portable ' + [char]0x6E38 + "'s game"
-$game.Bat = 'D:\Games\portable demo.bat'
+$startDir = Join-Path $portable 'Launch BAT'
+$settingsDir = Join-Path $portable 'Setting BAT'
+New-Item -ItemType Directory -Path $startDir, $settingsDir | Out-Null
+$launchBat = Join-Path $startDir 'start game.bat'
+$settingBat = Join-Path $settingsDir 'game setting.bat'
+'@echo off', '>start.marker echo START' | Set-Content -Path $launchBat -Encoding ASCII
+'@echo off', '>setting.marker echo SETTING' | Set-Content -Path $settingBat -Encoding ASCII
+$startMarker = Join-Path $startDir 'start.marker'
+$settingMarker = Join-Path $settingsDir 'setting.marker'
+$game.Bat = $launchBat
+$game.Hash = (Get-FileHash $launchBat).Hash
 $game.Art = [Guid]::NewGuid().ToString('N') + '.png'
 $png = [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgmMkAAAE2AJrwJL1AAAAAAElFTkSuQmCC')
 $updated = [Activator]::CreateInstance($games.GetType())
@@ -135,6 +145,7 @@ if ($saved.Count -ne 1 -or $saved[0].Name -ne $game.Name -or $saved[0].Bat -ne $
 
 $keyboardLauncher = [Activator]::CreateInstance($launcherType, $instance, $null, @($false, $true), $null)
 $keyboardWindow = $launcherType.GetField('Win', $instance).GetValue($keyboardLauncher)
+$running = $launcherType.GetField('running', $instance)
 try {
     $keyboardWindow.Show()
     Wait-ForWindow { $null -ne $keyboardWindow.FindName('Cover').Source } 'the asynchronously loaded screenshot'
@@ -144,6 +155,41 @@ try {
             throw 'Keyboard-only mode initialized a hardware input backend.'
         }
     }
+    $editorType = $assembly.GetType('LauncherBox.Editor', $true)
+    $editor = $editorType.GetConstructor($instance, $null, @($launcherType), $null).Invoke(@($keyboardLauncher))
+    $editorWindow = $editorType.GetField('win', $instance).GetValue($editor)
+    try {
+        $editorWindow.FindName('SettingsBatBox').Text = $settingBat
+        $editorType.GetMethod('Save', $instance).Invoke($editor, $null)
+    } finally {
+        $editorWindow.Close()
+    }
+    $withSetting = $load.Invoke($null, @($false))
+    if ($withSetting[0].SettingsBat -ne $settingBat -or
+        $withSetting[0].SettingsHash -ne (Get-FileHash $settingBat).Hash -or $withSetting[0].Hash -ne $game.Hash) {
+        throw 'The game editor did not save the Setting BAT independently of the Launch BAT.'
+    }
+
+    $start = $keyboardWindow.FindName('StartGame')
+    $setting = $keyboardWindow.FindName('GameSetting')
+    $click = [System.Windows.Controls.Primitives.ButtonBase]::ClickEvent
+    $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
+    Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the screenshot to run the Launch BAT'
+    if (Test-Path $settingMarker) { throw 'Clicking the screenshot ran the Setting BAT.' }
+    Remove-Item $startMarker
+
+    $setting.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $setting))
+    Wait-ForWindow { (Test-Path $settingMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'Setting to run its BAT'
+    if (Test-Path $startMarker) { throw 'Clicking Setting ran the Launch BAT.' }
+
+    $keyboardWindow.Activate() | Out-Null
+    Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
+    $keyboardSignal = $assembly.GetType('LauncherBox.InputSignal', $true).GetMethod('KeyboardKey', $static).Invoke(
+        $null, @([System.Windows.Input.Key]::Enter))
+    if (!$launcherType.GetMethod('RouteInput', $instance).Invoke($keyboardLauncher, @($keyboardSignal))) {
+        throw 'The default START input was not handled.'
+    }
+    Wait-ForWindow { (Test-Path $startMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'START to run the Launch BAT'
 } finally {
     $keyboardWindow.Close()
 }
@@ -151,6 +197,9 @@ try {
 $mapType = $assembly.GetType('LauncherBox.KeyMap', $true)
 $map = [Activator]::CreateInstance($mapType, $true)
 $play = [Enum]::Parse($assembly.GetType('LauncherBox.LauncherAction', $true), 'Play')
+if ($mapType.GetMethod('Label', $static).Invoke($null, @($play)) -ne 'START') {
+    throw 'The existing launch binding should appear as START.'
+}
 $midi = [Enum]::Parse($assembly.GetType('LauncherBox.InputSource', $true), 'Midi')
 $signalType = $assembly.GetType('LauncherBox.InputSignal', $true)
 $signal = [Activator]::CreateInstance($signalType, $instance, $null, @($midi, 'test-port', '1:note:60', 'Test Port · Note 60'), $null)
@@ -190,4 +239,30 @@ Move-Item $legacyRoot (Join-Path $portable 'legacy-backup')
 if ($null -eq $image.Invoke($null, @($migrated[0].Art)) -or $load.Invoke($null, @($false)).Count -ne 1) {
     throw 'The migrated library still depends on its legacy profile.'
 }
-Write-Host 'Verified fullscreen, responsive SQLite startup, input workers, keyboard-only mode, logging, and profile migration.'
+
+Move-Item $dbPath (Join-Path $portable 'legacy.db')
+$v1 = $sqlite.GetConstructor($instance, $null, @([string]), $null).Invoke(@("$dbPath"))
+try {
+    foreach ($sql in @(
+        'CREATE TABLE games (position INTEGER PRIMARY KEY, name TEXT, bat TEXT, hash TEXT, art TEXT)',
+        "INSERT INTO games VALUES (0, 'Version one game', 'D:\Games\start.bat', 'V1HASH', NULL)",
+        'CREATE TABLE settings (id INTEGER PRIMARY KEY, bindings_saved INTEGER NOT NULL)',
+        'INSERT INTO settings VALUES (1, 1)',
+        'CREATE TABLE bindings (position INTEGER PRIMARY KEY, action INTEGER NOT NULL, source INTEGER NOT NULL, device TEXT, code TEXT, label TEXT)',
+        "INSERT INTO bindings VALUES (0, 2, 3, 'test-port', '1:note:60', 'Version one START')",
+        'CREATE TABLE screenshots (id TEXT PRIMARY KEY, png BLOB NOT NULL)',
+        'PRAGMA user_version = 1'
+    )) {
+        $execute.Invoke($v1, @($sql, [object[]]@()))
+    }
+} finally {
+    $v1.Dispose()
+}
+$upgraded = $load.Invoke($null, @($false))
+$upgradedMap = [Activator]::CreateInstance($mapType, $true)
+$upgradedBinding = $mapType.GetMethod('Match', $instance).Invoke($upgradedMap, @($signal))
+if ($upgraded.Count -ne 1 -or $upgraded[0].Hash -ne 'V1HASH' -or $null -ne $upgraded[0].SettingsBat -or
+    $upgradedBinding.Label -ne 'Version one START') {
+    throw 'The SQLite upgrade did not preserve the existing game or START binding.'
+}
+Write-Host 'Verified fullscreen, native inputs, screenshot and START launch, independent Setting BAT, and database upgrades.'

@@ -8,7 +8,7 @@ using System.Windows.Threading;
 
 namespace LauncherBox {
     public enum InputSource { Keyboard, DirectInput, XInput, Midi }
-    public enum LauncherAction { Previous, Next, Play, Settings, Fullscreen, Exit }
+    public enum LauncherAction { Previous, Next, Play, Settings, Fullscreen, Exit } // Play is the persisted START action.
 
     public sealed class InputBinding {
         public LauncherAction Action { get; set; }
@@ -76,6 +76,8 @@ namespace LauncherBox {
             switch (action) {
                 case LauncherAction.Previous: return "Previous game";
                 case LauncherAction.Next: return "Next game";
+                case LauncherAction.Play: return "START";
+                case LauncherAction.Settings: return "Launcher settings";
                 case LauncherAction.Fullscreen: return "Toggle fullscreen";
                 default: return action.ToString();
             }
