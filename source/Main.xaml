@@ -61,8 +61,7 @@
     </Grid>
 
     <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,8,0,0">
-      <Button x:Name="GameSetting" Content="Setting" HorizontalAlignment="Center" FontSize="24"
-              AutomationProperties.Name="Game setting"/>
+      <Button x:Name="GameSetting" Content="Game Settings" HorizontalAlignment="Center" FontSize="24"/>
       <TextBlock x:Name="Status" Margin="0,4,0,0" TextAlignment="Center" Foreground="#A8A8A8"/>
     </StackPanel>
   </Grid>

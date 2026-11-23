@@ -220,10 +220,42 @@ try {
             !$editorBounds.Equals($ownerBounds) -or $editorWindow.FindName('GameFields').ScrollableHeight -gt 0.5) {
             throw 'Fullscreen settings must cover the launcher and show all game fields without scrolling.'
         }
-        $editorWindow.FindName('SettingsBatBox').Text = $settingBat
+        $enableSettings = $editorWindow.FindName('EnableGameSettings')
+        $settingsField = $editorWindow.FindName('GameSettingsFile')
+        $setting = $keyboardWindow.FindName('GameSetting')
+        $draw = $launcherType.GetMethod('Draw', $instance)
+        if ($enableSettings.IsChecked -or $settingsField.Visibility -ne 'Collapsed' -or $setting.Visibility -ne 'Collapsed') {
+            throw 'Game Settings should start unchecked and hidden for a game without a BAT.'
+        }
+        $enableSettings.IsChecked = $true
         $editorWindow.FindName('LaunchArgumentsBox').Text = $arguments
         $saveGame = $editorType.GetMethod('Save', $instance)
         $saveGame.Invoke($editor, $null)
+        $draw.Invoke($keyboardLauncher, @($null))
+        $checkedWithoutFile = $load.Invoke($null, @($false))
+        if (!$checkedWithoutFile[0].SettingsEnabled -or $null -ne $checkedWithoutFile[0].SettingsBat -or
+            $settingsField.Visibility -ne 'Visible' -or $setting.Visibility -ne 'Collapsed') {
+            throw 'A checked Game Settings option without a BAT must save without showing a button.'
+        }
+
+        $editorWindow.FindName('SettingsBatBox').Text = $settingBat
+        $saveGame.Invoke($editor, $null)
+        $draw.Invoke($keyboardLauncher, @($null))
+        if ($setting.Visibility -ne 'Visible' -or $setting.Content -ne 'Game Settings') {
+            throw 'A checked Game Settings option with a BAT must show the Game Settings button.'
+        }
+
+        $enableSettings.IsChecked = $false
+        $saveGame.Invoke($editor, $null)
+        $draw.Invoke($keyboardLauncher, @($null))
+        $uncheckedWithFile = $load.Invoke($null, @($false))
+        if ($uncheckedWithFile[0].SettingsEnabled -or $uncheckedWithFile[0].SettingsBat -ne $settingBat -or
+            $settingsField.Visibility -ne 'Collapsed' -or $setting.Visibility -ne 'Collapsed') {
+            throw 'Unchecking Game Settings must hide the button and keep the selected BAT.'
+        }
+        $enableSettings.IsChecked = $true
+        $saveGame.Invoke($editor, $null)
+        $draw.Invoke($keyboardLauncher, @($null))
         foreach ($entry in @(
             @{ Name = 'CMD game'; File = $launchCmd; Arguments = '"Band & Stage"' },
             @{ Name = 'EXE game'; File = $launchExe; Arguments = '"D:\Game data\" "A&B" "" "%TEMP%"' }
@@ -255,7 +287,7 @@ try {
         $editorWindow.Close()
     }
     $withSetting = $load.Invoke($null, @($false))
-    if ($withSetting[0].SettingsBat -ne $settingBat -or $withSetting[0].LaunchArguments -ne $arguments -or
+    if (!$withSetting[0].SettingsEnabled -or $withSetting[0].SettingsBat -ne $settingBat -or $withSetting[0].LaunchArguments -ne $arguments -or
         $withSetting[0].SettingsHash -ne (Get-FileHash $settingBat).Hash -or $withSetting[0].Hash -ne $game.Hash -or
         $withSetting[3].Bat -ne $launchCmd -or $withSetting[3].Hash -ne (Get-FileHash $launchCmd).Hash -or
         $withSetting[4].Bat -ne $launchExe -or $withSetting[4].Hash -ne (Get-FileHash $launchExe).Hash) {
@@ -419,16 +451,22 @@ if ($null -eq $image.Invoke($null, @($migrated[0].Art)) -or $load.Invoke($null, 
 }
 
 Move-Item $dbPath (Join-Path $portable 'legacy.db')
-foreach ($schema in 1, 2) {
+foreach ($schema in 1, 2, 3) {
     $old = $sqlite.GetConstructor($instance, $null, @([string]), $null).Invoke(@("$dbPath"))
     try {
         $ddl = 'CREATE TABLE games (position INTEGER PRIMARY KEY, name TEXT, bat TEXT, hash TEXT, art TEXT'
         $row = "INSERT INTO games VALUES (0, 'Existing game', 'D:\Games\start.bat', 'LAUNCHHASH', NULL"
         $expectedSetting = $null
-        if ($schema -eq 2) {
+        $expectedArguments = $null
+        if ($schema -ge 2) {
             $expectedSetting = 'D:\Games\setting.bat'
             $ddl += ', settings_bat TEXT, settings_hash TEXT'
             $row += ", '$expectedSetting', 'SETTINGHASH'"
+        }
+        if ($schema -ge 3) {
+            $expectedArguments = '0'
+            $ddl += ', launch_arguments TEXT'
+            $row += ", '$expectedArguments'"
         }
         foreach ($sql in @(
             "$ddl)",
@@ -449,7 +487,8 @@ foreach ($schema in 1, 2) {
     $upgradedMap = [Activator]::CreateInstance($mapType, $true)
     $upgradedBinding = $mapType.GetMethod('Match', $instance).Invoke($upgradedMap, @($signal))
     if ($upgraded.Count -ne 1 -or $upgraded[0].Hash -ne 'LAUNCHHASH' -or
-        $upgraded[0].SettingsBat -ne $expectedSetting -or $null -ne $upgraded[0].LaunchArguments -or
+        $upgraded[0].SettingsBat -ne $expectedSetting -or $upgraded[0].LaunchArguments -ne $expectedArguments -or
+        $upgraded[0].SettingsEnabled -ne ($null -ne $expectedSetting) -or
         $upgradedBinding.Label -ne 'Existing START') {
         throw "The SQLite upgrade from version $schema did not preserve existing settings."
     }

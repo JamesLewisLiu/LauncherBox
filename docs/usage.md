@@ -4,11 +4,11 @@ Extract the ZIP to a folder of your choice. Run `LauncherBox.exe` directly on 64
 
 On first run, LauncherBox imports the old `Profiles` data beside the EXE. It uses the current Windows account’s profile or the only legacy profile with settings. If several legacy profiles exist and none matches the current account, move the ones you want to skip to a backup folder and restart. The source files are kept. If you moved a BAT file, select it again in **Settings → Games**.
 
-LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, and select a **Launch file** (`.exe`, `.cmd`, or `.bat`). You can also select an optional **Setting BAT** and a PNG, JPEG, or BMP screenshot. Choose **Save Game** when done.
+LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, and select a **Launch file** (`.exe`, `.cmd`, or `.bat`). You can add an optional PNG, JPEG, or BMP screenshot. Choose **Save Game** when done.
 
 Drag a game up or down in the Games list to change its order. LauncherBox saves the new order when you drop it.
 
-Click the game screenshot or use the **START** binding to launch the game. The **Setting** button below the screenshot and the **Game Setting** binding both run the current game's **Setting BAT**. In a manual session, they open the game editor when the optional BAT is empty.
+Click the game screenshot or use the **START** binding to launch the game. To add a **Game Settings** button below the screenshot, check **Game Settings**, choose a BAT file, and save. A checked box with an empty file field can also be saved. The button and key binding are available when both the checkbox and the file are set. Unchecking the box keeps the file selection for later.
 
 ## Controls
 

@@ -9,6 +9,7 @@
                         UseAeroCaptionButtons="False"/>
   </shell:WindowChrome.WindowChrome>
   <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BooleanToVisibility"/>
     <Style TargetType="TextBox">
       <Setter Property="Background" Value="Black"/>
       <Setter Property="Foreground" Value="White"/>
@@ -60,11 +61,13 @@
                 <TextBox x:Name="LaunchArgumentsBox" Margin="0,5,0,10" MaxLength="2048"
                          AutomationProperties.Name="Launch arguments"
                          ToolTip="Arguments passed to the launch file, such as 0 or &quot;My game&quot;."/>
-                <TextBlock Text="Setting BAT (optional)"/>
-                <DockPanel Margin="0,5,0,10">
+                <CheckBox x:Name="EnableGameSettings" Content="Game Settings" Foreground="White" Margin="0,0,0,10"
+                          ToolTip="Select a .bat file to show the Game Settings button."/>
+                <DockPanel x:Name="GameSettingsFile" Margin="0,0,0,10"
+                           Visibility="{Binding IsChecked, ElementName=EnableGameSettings, Converter={StaticResource BooleanToVisibility}}">
                   <Button x:Name="ClearSettingsBat" DockPanel.Dock="Right" Content="Clear"/>
                   <Button x:Name="BrowseSettingsBat" DockPanel.Dock="Right" Content="Browse"/>
-                  <TextBox x:Name="SettingsBatBox" IsReadOnly="True"/>
+                  <TextBox x:Name="SettingsBatBox" IsReadOnly="True" AutomationProperties.Name="Game settings BAT"/>
                 </DockPanel>
                 <TextBlock Text="Screenshot (optional)"/>
                 <DockPanel Margin="0,5,0,8">

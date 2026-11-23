@@ -31,7 +31,12 @@ namespace LauncherBox {
         public string Art { get; set; }
         public string SettingsBat { get; set; }
         public string SettingsHash { get; set; }
+        public bool SettingsEnabled { get; set; }
         public string LaunchArguments { get; set; }
+
+        internal bool HasGameSettings {
+            get { return SettingsEnabled && !String.IsNullOrWhiteSpace(SettingsBat); }
+        }
     }
 
     internal static partial class Store {
@@ -357,10 +362,7 @@ namespace LauncherBox {
                 case LauncherAction.Previous: Step(-1); break;
                 case LauncherAction.Next: Step(1); break;
                 case LauncherAction.Play: RunGameFile(false); break;
-                case LauncherAction.GameSetting:
-                    // The game editor can open a modal window, so let the input poll return first.
-                    Win.Dispatcher.BeginInvoke(new Action(() => RunGameFile(true)));
-                    break;
+                case LauncherAction.GameSetting: RunGameFile(true); break;
                 case LauncherAction.Settings: Manage(); break;
                 case LauncherAction.Fullscreen: Fullscreen(); break;
                 case LauncherAction.Exit: Win.Close(); break;
@@ -393,7 +395,7 @@ namespace LauncherBox {
             Index = Math.Max(0, Math.Min(Index, Games.Count - 1));
             Game game = Games.Count > 0 ? Games[Index] : null;
             bool ready = game != null && !String.IsNullOrEmpty(game.Bat);
-            bool hasSetting = game != null && !String.IsNullOrEmpty(game.SettingsBat);
+            bool hasSetting = game != null && game.HasGameSettings;
             Find<TextBlock>("GameName").Text = game != null ? game.Name : "";
             Find<TextBlock>("GameName").Visibility = game == null ? Visibility.Collapsed : Visibility.Visible;
             Find<TextBlock>("EmptyLibrary").Text = logon ? "No games." : "No games. Open Settings to add a game.";
@@ -401,7 +403,7 @@ namespace LauncherBox {
             Find<Button>("Previous").Visibility = Find<Button>("Next").Visibility = Games.Count > 1 ? Visibility.Visible : Visibility.Hidden;
             Find<Button>("StartGame").Visibility = game != null ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("StartGame").IsEnabled = running == null && (ready || !logon);
-            Find<Button>("GameSetting").Visibility = game != null && (hasSetting || !logon) ? Visibility.Visible : Visibility.Collapsed;
+            Find<Button>("GameSetting").Visibility = hasSetting ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("GameSetting").IsEnabled = running == null;
             Find<TextBlock>("Status").Text = notice ?? "";
             string art = game == null ? null : game.Art;
@@ -432,12 +434,13 @@ namespace LauncherBox {
 
         private async void RunGameFile(bool settings) {
             if (closed || running != null || editor != null || Bindings == null) return;
-            if (Games.Count == 0) { Manage(); return; }
+            if (Games.Count == 0) { if (!settings) Manage(); return; }
             Game game = Games[Index];
+            if (settings && !game.HasGameSettings) return;
             string path = settings ? game.SettingsBat : game.Bat;
             string hash = settings ? game.SettingsHash : game.Hash;
             if (String.IsNullOrEmpty(path)) { Manage(); return; }
-            string action = settings ? "Opening the game setting" : "Launching the game";
+            string action = settings ? "Opening game settings" : "Launching the game";
             try {
                 bool executable = !settings && Store.IsExecutable(path);
                 string arguments = settings ? "" : Store.FormatLaunchArguments(game.LaunchArguments, executable);
@@ -544,6 +547,10 @@ namespace LauncherBox {
             };
             Find<TextBox>("TitleBox").TextChanged += delegate { if (!binding) dirty = true; };
             Find<TextBox>("LaunchArgumentsBox").TextChanged += delegate { if (!binding) dirty = true; };
+            CheckBox gameSettings = Find<CheckBox>("EnableGameSettings");
+            RoutedEventHandler settingsChanged = delegate { if (!binding) dirty = true; };
+            gameSettings.Checked += settingsChanged;
+            gameSettings.Unchecked += settingsChanged;
             Find<Button>("Add").Click += delegate {
                 if (!Discard()) return;
                 Rebind(null);
@@ -849,6 +856,7 @@ namespace LauncherBox {
             Find<TextBox>("TitleBox").Text = game == null ? "" : game.Name;
             Find<TextBox>("LaunchFileBox").Text = game == null ? "" : game.Bat;
             Find<TextBox>("LaunchArgumentsBox").Text = game == null ? "" : game.LaunchArguments;
+            Find<CheckBox>("EnableGameSettings").IsChecked = game != null && game.SettingsEnabled;
             Find<TextBox>("SettingsBatBox").Text = game == null ? "" : game.SettingsBat;
             Find<Button>("ClearSettingsBat").IsEnabled = game != null && !String.IsNullOrEmpty(game.SettingsBat);
             Find<TextBox>("ImageBox").Text = game != null && !String.IsNullOrEmpty(game.Art) ? "Saved screenshot" : "";
@@ -871,11 +879,15 @@ namespace LauncherBox {
             Game game = new Game {
                 Name = name, Bat = path, Hash = LaunchFileHash(path, selected == null ? null : selected.Hash, pickedLaunchFile, false),
                 Art = selected == null ? null : selected.Art,
-                LaunchArguments = arguments.Length > 0 ? arguments : null
+                LaunchArguments = arguments.Length > 0 ? arguments : null,
+                SettingsEnabled = Find<CheckBox>("EnableGameSettings").IsChecked == true
             };
             if (!String.IsNullOrWhiteSpace(settingsPath)) {
+                string previous = selected == null ? null : selected.SettingsHash;
                 game.SettingsBat = settingsPath;
-                game.SettingsHash = LaunchFileHash(settingsPath, selected == null ? null : selected.SettingsHash, pickedSettingsBatch, true);
+                game.SettingsHash = game.SettingsEnabled
+                    ? LaunchFileHash(settingsPath, previous, pickedSettingsBatch, true)
+                    : (pickedSettingsBatch ? null : previous);
             }
             byte[] png = String.IsNullOrEmpty(pendingArt) ? null : Store.ImportArt(pendingArt);
             if (png != null) game.Art = Guid.NewGuid().ToString("N") + ".png";

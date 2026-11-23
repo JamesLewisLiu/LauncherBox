@@ -78,7 +78,7 @@ namespace LauncherBox {
                 case LauncherAction.Previous: return "Previous game";
                 case LauncherAction.Next: return "Next game";
                 case LauncherAction.Play: return "START";
-                case LauncherAction.GameSetting: return "Game Setting";
+                case LauncherAction.GameSetting: return "Game Settings";
                 case LauncherAction.Settings: return "Launcher settings";
                 case LauncherAction.Fullscreen: return "Toggle fullscreen";
                 default: return action.ToString();
