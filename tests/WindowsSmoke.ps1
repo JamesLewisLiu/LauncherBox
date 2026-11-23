@@ -126,9 +126,13 @@ $game = [Activator]::CreateInstance($assembly.GetType('LauncherBox.Game', $true)
 $game.Name = 'Portable ' + [char]0x6E38 + "'s game"
 $startDir = Join-Path $portable 'Launch BAT'
 $settingsDir = Join-Path $portable 'Setting BAT'
-New-Item -ItemType Directory -Path $startDir, $settingsDir | Out-Null
+$cmdDir = Join-Path $portable 'Launch CMD'
+$exeDir = Join-Path $portable 'Launch EXE'
+New-Item -ItemType Directory -Path $startDir, $settingsDir, $cmdDir, $exeDir | Out-Null
 $launchBat = Join-Path $startDir 'start game.bat'
 $settingBat = Join-Path $settingsDir 'game setting.bat'
+$launchCmd = Join-Path $cmdDir 'start game.CMD'
+$launchExe = Join-Path $exeDir 'start game.exe'
 @'
 @echo off
 setlocal DisableDelayedExpansion
@@ -145,10 +149,22 @@ exit /b 0
 exit /b 0
 '@ | Set-Content -Path $launchBat -Encoding ASCII
 '@echo off', '>setting.marker echo "%~1"' | Set-Content -Path $settingBat -Encoding ASCII
+'@echo off', '>cmd.marker echo "%~1"' | Set-Content -Path $launchCmd -Encoding ASCII
+Add-Type -OutputAssembly $launchExe -OutputType WindowsApplication -TypeDefinition @'
+using System.IO;
+
+public static class LaunchProbe {
+    public static void Main(string[] args) {
+        File.WriteAllLines("exe.marker", args);
+    }
+}
+'@
 $startMarker = Join-Path $startDir 'start-1.marker'
 $zeroMarker = Join-Path $startDir 'start-0.marker'
 $manualMarker = Join-Path $startDir 'manual.marker'
 $settingMarker = Join-Path $settingsDir 'setting.marker'
+$cmdMarker = Join-Path $cmdDir 'cmd.marker'
+$exeMarker = Join-Path $exeDir 'exe.marker'
 $game.Bat = $launchBat
 $game.Hash = (Get-FileHash $launchBat).Hash
 $game.Art = [Guid]::NewGuid().ToString('N') + '.png'
@@ -206,14 +222,28 @@ try {
         }
         $editorWindow.FindName('SettingsBatBox').Text = $settingBat
         $editorWindow.FindName('LaunchArgumentsBox').Text = $arguments
-        $editorType.GetMethod('Save', $instance).Invoke($editor, $null)
+        $saveGame = $editorType.GetMethod('Save', $instance)
+        $saveGame.Invoke($editor, $null)
+        foreach ($entry in @(
+            @{ Name = 'CMD game'; File = $launchCmd; Arguments = '"Band & Stage"' },
+            @{ Name = 'EXE game'; File = $launchExe; Arguments = '"D:\Game data\" "A&B" "" "%TEMP%"' }
+        )) {
+            $editorType.GetMethod('Rebind', $instance).Invoke($editor, @($null))
+            $editorWindow.FindName('TitleBox').Text = $entry.Name
+            $editorWindow.FindName('LaunchFileBox').Text = $entry.File
+            $editorWindow.FindName('LaunchArgumentsBox').Text = $entry.Arguments
+            $saveGame.Invoke($editor, $null)
+        }
+        $editorWindow.FindName('Entries').SelectedIndex = 0
     } finally {
         $editorWindow.Close()
     }
     $withSetting = $load.Invoke($null, @($false))
     if ($withSetting[0].SettingsBat -ne $settingBat -or $withSetting[0].LaunchArguments -ne $arguments -or
-        $withSetting[0].SettingsHash -ne (Get-FileHash $settingBat).Hash -or $withSetting[0].Hash -ne $game.Hash) {
-        throw 'The game editor did not save the Setting BAT independently of the Launch BAT.'
+        $withSetting[0].SettingsHash -ne (Get-FileHash $settingBat).Hash -or $withSetting[0].Hash -ne $game.Hash -or
+        $withSetting[3].Bat -ne $launchCmd -or $withSetting[3].Hash -ne (Get-FileHash $launchCmd).Hash -or
+        $withSetting[4].Bat -ne $launchExe -or $withSetting[4].Hash -ne (Get-FileHash $launchExe).Hash) {
+        throw 'The game editor did not save and hash each supported launch file.'
     }
 
     $start = $keyboardWindow.FindName('StartGame')
@@ -306,6 +336,22 @@ try {
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
     Wait-ForWindow { (Test-Path $manualMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the shared Launch BAT to run without arguments'
+
+    $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
+    $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
+    Wait-ForWindow { (Test-Path $cmdMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the CMD file to run'
+    if ((Get-Content $cmdMarker -Raw).Trim() -ne '"Band & Stage"') {
+        throw 'The CMD file did not receive its launch argument.'
+    }
+
+    $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
+    $start.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $start))
+    Wait-ForWindow { (Test-Path $exeMarker) -and $null -eq $running.GetValue($keyboardLauncher) } 'the EXE file to run'
+    $exeArguments = [IO.File]::ReadAllLines($exeMarker)
+    if ($exeArguments.Count -ne 4 -or $exeArguments[0] -ne 'D:\Game data\' -or
+        $exeArguments[1] -ne 'A&B' -or $exeArguments[2] -ne '' -or $exeArguments[3] -ne '%TEMP%') {
+        throw 'The EXE file did not receive its launch arguments intact.'
+    }
 } finally {
     $keyboardWindow.Close()
 }

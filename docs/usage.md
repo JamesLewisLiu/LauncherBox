@@ -4,7 +4,7 @@ Extract the ZIP to a folder of your choice. Run `LauncherBox.exe` directly on 64
 
 On first run, LauncherBox imports the old `Profiles` data beside the EXE. It uses the current Windows account’s profile or the only legacy profile with settings. If several legacy profiles exist and none matches the current account, move the ones you want to skip to a backup folder and restart. The source files are kept. If you moved a BAT file, select it again in **Settings → Games**.
 
-LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, and select a **Launch BAT**. You can also select an optional **Setting BAT** and a PNG, JPEG, or BMP screenshot. Choose **Save Game** when done.
+LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, and select a **Launch file** (`.exe`, `.cmd`, or `.bat`). You can also select an optional **Setting BAT** and a PNG, JPEG, or BMP screenshot. Choose **Save Game** when done.
 
 Click the game screenshot or use the **START** binding to launch the game. The **Setting** button below the screenshot and the **Game Setting** binding both run the current game's **Setting BAT**. In a manual session, they open the game editor when the optional BAT is empty.
 
@@ -16,13 +16,13 @@ In **Settings → Controls**, select **Naive keyboard**, **DirectInput**, **XInp
 
 MIDI supports note strikes, control-change values crossing 64, and pitch bends in either direction. A zero-velocity Note On is ignored. MIDI bindings include the port and channel. XInput bindings follow the controller slot.
 
-## BAT files
+## Launch files
 
-Each BAT runs with administrator privileges in its own folder. Use trusted scripts and keep them and their dependencies in locations standard users cannot modify. LauncherBox checks the SHA-256 hash for each BAT. If you edit either script, select it again in **Settings → Games** and save.
+LauncherBox starts EXEs directly and runs CMD and BAT scripts through the Windows command interpreter. Each file runs with administrator privileges in its own folder. Keep trusted files and their dependencies in locations standard users cannot modify. LauncherBox verifies each file's SHA-256 hash. If you change a file, select it again in **Settings → Games** and save.
 
-Games can share one **Launch BAT** and use different **Launch arguments**. Read the values in the BAT with `%~1`, `%~2`, and so on. Use double quotes around arguments containing spaces. Leave the field blank to run the BAT without arguments.
+Games can share one **Launch file** and use different **Launch arguments**. In a script, read the values with `%~1`, `%~2`, and so on. Use double quotes around arguments containing spaces. Leave the field blank to launch without arguments.
 
-The launcher window stays open behind the game. LauncherBox asks Windows to bring it forward when the Launch BAT exits. If the BAT uses `start` to launch a game, add `/wait` to return after the game closes.
+The launcher window stays open behind the game. LauncherBox asks Windows to bring it forward when the launch process exits. If a script uses `start` to launch a game, add `/wait` to return after the game closes.
 
 ```bat
 @echo off

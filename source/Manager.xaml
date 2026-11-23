@@ -50,15 +50,15 @@
               <StackPanel>
                 <TextBlock Text="Game name"/>
                 <TextBox x:Name="TitleBox" Margin="0,5,0,10" MaxLength="80"/>
-                <TextBlock Text="Launch BAT"/>
+                <TextBlock Text="Launch file (.exe, .cmd, .bat)"/>
                 <DockPanel Margin="0,5,0,10">
-                  <Button x:Name="BrowseBat" DockPanel.Dock="Right" Content="Browse"/>
-                  <TextBox x:Name="BatBox" IsReadOnly="True"/>
+                  <Button x:Name="BrowseLaunchFile" DockPanel.Dock="Right" Content="Browse"/>
+                  <TextBox x:Name="LaunchFileBox" IsReadOnly="True"/>
                 </DockPanel>
                 <TextBlock Text="Launch arguments (optional)"/>
                 <TextBox x:Name="LaunchArgumentsBox" Margin="0,5,0,10" MaxLength="2048"
                          AutomationProperties.Name="Launch arguments"
-                         ToolTip="Arguments passed to Launch BAT, such as 0 or &quot;My game&quot;."/>
+                         ToolTip="Arguments passed to the launch file, such as 0 or &quot;My game&quot;."/>
                 <TextBlock Text="Setting BAT (optional)"/>
                 <DockPanel Margin="0,5,0,10">
                   <Button x:Name="ClearSettingsBat" DockPanel.Dock="Right" Content="Clear"/>
