@@ -234,7 +234,23 @@ try {
             $editorWindow.FindName('LaunchArgumentsBox').Text = $entry.Arguments
             $saveGame.Invoke($editor, $null)
         }
-        $editorWindow.FindName('Entries').SelectedIndex = 0
+        $entries = $editorWindow.FindName('Entries')
+        $entries.SelectedIndex = 0
+        $firstGame = $entries.SelectedItem
+        $titleBox = $editorWindow.FindName('TitleBox')
+        $draftName = $firstGame.Name + ' (draft)'
+        $titleBox.Text = $draftName
+        $moveGame = $editorType.GetMethod('MoveGame', $instance)
+        $moveGame.Invoke($editor, @($firstGame, $entries.Items.Count))
+        $reordered = $load.Invoke($null, @($false))
+        if (!$entries.AllowDrop -or $reordered[0].Name -ne $otherGame.Name -or $reordered[4].Name -ne $firstGame.Name -or
+            $reordered[4].Art -ne $firstGame.Art -or $entries.SelectedItem -ne $firstGame -or $titleBox.Text -ne $draftName -or
+            $launcherType.GetField('Index', $instance).GetValue($keyboardLauncher) -ne 4) {
+            throw 'Reordering must persist the new game order and preserve the current selection and draft.'
+        }
+        $moveGame.Invoke($editor, @($firstGame, 0))
+        $titleBox.Text = $firstGame.Name
+        $saveGame.Invoke($editor, $null)
     } finally {
         $editorWindow.Close()
     }

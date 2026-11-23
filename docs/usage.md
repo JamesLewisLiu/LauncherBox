@@ -6,6 +6,8 @@ On first run, LauncherBox imports the old `Profiles` data beside the EXE. It use
 
 LauncherBox opens fullscreen with an empty library. Open the gear menu or press **F2** to open **Settings**. In **Games**, choose **Add**, enter a name, and select a **Launch file** (`.exe`, `.cmd`, or `.bat`). You can also select an optional **Setting BAT** and a PNG, JPEG, or BMP screenshot. Choose **Save Game** when done.
 
+Drag a game up or down in the Games list to change its order. LauncherBox saves the new order when you drop it.
+
 Click the game screenshot or use the **START** binding to launch the game. The **Setting** button below the screenshot and the **Game Setting** binding both run the current game's **Setting BAT**. In a manual session, they open the game editor when the optional BAT is empty.
 
 ## Controls

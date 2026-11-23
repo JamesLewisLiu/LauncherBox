@@ -42,6 +42,7 @@
             </UniformGrid>
             <ListBox x:Name="Entries" DisplayMemberPath="Name" Padding="4"
                      Background="Black" Foreground="White" BorderThickness="0"
+                     AllowDrop="True" ToolTip="Drag a game to change its order."
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
           </DockPanel>
           <DockPanel Grid.Column="1">

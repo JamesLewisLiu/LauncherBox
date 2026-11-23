@@ -14,6 +14,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Markup;
@@ -492,9 +493,15 @@ namespace LauncherBox {
     internal sealed class Editor {
         private const string LaunchFileFilter = "Launch files (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat";
         private const string BatchFilter = "Windows batch files (*.bat)|*.bat";
+        private const string GameOrderDragFormat = "LauncherBox.GameOrder";
         private readonly Window win = Store.WindowFrom("Manager.xaml");
         private readonly Launcher launcher;
         private readonly ListBox list;
+        private Game dragCandidate;
+        private Game draggedGame;
+        private Point dragStart;
+        private DropIndicator dropIndicator;
+        private readonly Stopwatch dragScroll = new Stopwatch();
         private Game selected;
         private string pendingArt;
         private bool pickedLaunchFile;
@@ -523,6 +530,12 @@ namespace LauncherBox {
                 win.WindowState = WindowState.Maximized;
             }
             list = Find<ListBox>("Entries");
+            win.PreviewMouseLeftButtonDown += BeginGameDrag;
+            win.PreviewMouseLeftButtonUp += delegate { dragCandidate = null; };
+            list.PreviewMouseMove += DragGame;
+            list.PreviewDragOver += ShowGameDrop;
+            list.PreviewDrop += DropGame;
+            list.DragLeave += delegate { ClearGameDrop(); };
             list.SelectionChanged += delegate {
                 if (binding) return;
                 Game next = list.SelectedItem as Game;
@@ -584,6 +597,129 @@ namespace LauncherBox {
             Rebind(launcher.Games.Count == 0 ? null : launcher.Games[launcher.Index]);
             AutoStatus();
             ShowControls(false);
+        }
+
+        private void BeginGameDrag(object sender, MouseButtonEventArgs e) {
+            ListBoxItem row = GameRow(e.OriginalSource);
+            dragCandidate = row == null ? null : list.ItemContainerGenerator.ItemFromContainer(row) as Game;
+            dragStart = e.GetPosition(win);
+        }
+
+        private void DragGame(object sender, MouseEventArgs e) {
+            if (e.LeftButton != MouseButtonState.Pressed || dragCandidate == null || dragCandidate != selected || list.Items.Count < 2) return;
+            Vector distance = e.GetPosition(win) - dragStart;
+            if (Math.Abs(distance.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(distance.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+            draggedGame = dragCandidate;
+            dragCandidate = null;
+            dragScroll.Reset();
+            e.Handled = true;
+            try {
+                DragDrop.DoDragDrop(list, new DataObject(GameOrderDragFormat, "Move"), DragDropEffects.Move);
+            } finally {
+                draggedGame = null;
+                ClearGameDrop();
+            }
+        }
+
+        private ListBoxItem GameRow(object source) {
+            DependencyObject element = source as DependencyObject;
+            return element == null ? null : ItemsControl.ContainerFromElement(list, element) as ListBoxItem;
+        }
+
+        private ListBoxItem GameDropRow(DragEventArgs e, out bool after) {
+            after = false;
+            if (draggedGame == null || !e.Data.GetDataPresent(GameOrderDragFormat)) return null;
+            ListBoxItem row = GameRow(e.OriginalSource);
+            if (row != null) {
+                after = e.GetPosition(row).Y >= row.ActualHeight / 2;
+                return row;
+            }
+
+            // The blank area beneath the last row also accepts drops.
+            ListBoxItem last = list.ItemContainerGenerator.ContainerFromIndex(list.Items.Count - 1) as ListBoxItem;
+            if (last == null || e.GetPosition(last).Y < last.ActualHeight) return null;
+            after = true;
+            return last;
+        }
+
+        private void ShowGameDrop(object sender, DragEventArgs e) {
+            bool after;
+            ListBoxItem row = GameDropRow(e, out after);
+            e.Effects = row == null ? DragDropEffects.None : DragDropEffects.Move;
+            e.Handled = true;
+            if (row == null) { ClearGameDrop(); return; }
+            if (dropIndicator == null || dropIndicator.AdornedElement != row || dropIndicator.After != after) {
+                ClearGameDrop();
+                AdornerLayer layer = AdornerLayer.GetAdornerLayer(row);
+                if (layer != null) {
+                    dropIndicator = new DropIndicator(row, after, (Brush)list.FindResource("Accent"));
+                    layer.Add(dropIndicator);
+                }
+            }
+
+            if (dragScroll.IsRunning && dragScroll.ElapsedMilliseconds < 120) return;
+            double y = e.GetPosition(list).Y;
+            int edgeDirection = y < 24 ? -1 : (y > list.ActualHeight - 24 ? 1 : 0);
+            int adjacent = list.ItemContainerGenerator.IndexFromContainer(row) + edgeDirection;
+            if (edgeDirection == 0 || adjacent < 0 || adjacent >= list.Items.Count) return;
+            list.ScrollIntoView(list.Items[adjacent]);
+            dragScroll.Restart();
+        }
+
+        private void DropGame(object sender, DragEventArgs e) {
+            bool after;
+            ListBoxItem row = GameDropRow(e, out after);
+            ClearGameDrop();
+            e.Effects = row == null ? DragDropEffects.None : DragDropEffects.Move;
+            e.Handled = true;
+            if (row == null) return;
+
+            int index = list.ItemContainerGenerator.IndexFromContainer(row);
+            if (index >= 0) Guard(() => MoveGame(draggedGame, index + (after ? 1 : 0)));
+        }
+
+        private void ClearGameDrop() {
+            if (dropIndicator == null) return;
+            AdornerLayer layer = VisualTreeHelper.GetParent(dropIndicator) as AdornerLayer;
+            if (layer != null) layer.Remove(dropIndicator);
+            dropIndicator = null;
+        }
+
+        private void MoveGame(Game game, int insertionIndex) {
+            List<Game> original = launcher.Games;
+            int sourceIndex = original.IndexOf(game);
+            if (sourceIndex < 0 || insertionIndex < 0 || insertionIndex > original.Count) return;
+            int destination = sourceIndex < insertionIndex ? insertionIndex - 1 : insertionIndex;
+            if (destination == sourceIndex) return;
+
+            Game current = selected ?? original[Math.Max(0, Math.Min(launcher.Index, original.Count - 1))];
+            List<Game> updated = new List<Game>(original);
+            updated.RemoveAt(sourceIndex);
+            updated.Insert(destination, game);
+            Store.Save(original, updated);
+            launcher.Games = updated;
+            launcher.Index = updated.IndexOf(current);
+            RefreshEntries(selected);
+            list.ScrollIntoView(game);
+        }
+
+        private sealed class DropIndicator : Adorner {
+            internal readonly bool After;
+            private readonly Pen pen;
+
+            internal DropIndicator(ListBoxItem row, bool after, Brush color) : base(row) {
+                After = after;
+                pen = new Pen(color, 2);
+                IsHitTestVisible = false;
+            }
+
+            protected override void OnRender(DrawingContext drawing) {
+                Size size = AdornedElement.RenderSize;
+                double y = After ? size.Height - 1 : 1;
+                drawing.DrawLine(pen, new Point(0, y), new Point(size.Width, y));
+            }
         }
 
         private void AddSource(string id, InputSource source) {
@@ -690,11 +826,18 @@ namespace LauncherBox {
             return !dirty || MessageBox.Show(win, "Discard unsaved changes to this game?", "Settings", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
         }
         private void Rebind(Game value) {
-            binding = true;
-            list.ItemsSource = null;
-            list.ItemsSource = launcher.Games;
-            list.SelectedItem = value;
+            RefreshEntries(value);
             Populate(value);
+        }
+        private void RefreshEntries(Game value) {
+            binding = true;
+            try {
+                list.ItemsSource = null;
+                list.ItemsSource = launcher.Games;
+                list.SelectedItem = value;
+            } finally {
+                binding = false;
+            }
         }
         private void Populate(Game game) {
             binding = true;
