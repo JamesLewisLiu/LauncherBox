@@ -9,7 +9,7 @@ using System.Windows.Threading;
 namespace LauncherBox {
     public enum InputSource { Keyboard, DirectInput, XInput, Midi }
     // The values are stored in SQLite. Append new actions to preserve existing bindings.
-    public enum LauncherAction { Previous, Next, Play, Settings, Fullscreen, Exit, GameSetting }
+    public enum LauncherAction { Previous, Next, Play, Settings, Fullscreen, Exit, GameSetting, PowerMenu }
 
     public sealed class InputBinding {
         public LauncherAction Action { get; set; }
@@ -49,7 +49,7 @@ namespace LauncherBox {
     internal sealed class KeyMap {
         internal static readonly LauncherAction[] Actions = {
             LauncherAction.Previous, LauncherAction.Next, LauncherAction.Play,
-            LauncherAction.GameSetting, LauncherAction.Settings, LauncherAction.Fullscreen, LauncherAction.Exit
+            LauncherAction.GameSetting, LauncherAction.Settings, LauncherAction.Fullscreen, LauncherAction.PowerMenu, LauncherAction.Exit
         };
         private List<InputBinding> bindings;
 
@@ -81,6 +81,7 @@ namespace LauncherBox {
                 case LauncherAction.GameSetting: return "Game Settings";
                 case LauncherAction.Settings: return "Launcher settings";
                 case LauncherAction.Fullscreen: return "Toggle fullscreen";
+                case LauncherAction.PowerMenu: return "Power menu";
                 default: return action.ToString();
             }
         }

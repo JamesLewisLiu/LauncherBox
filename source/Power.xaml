@@ -1,0 +1,21 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Power" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStyle="None" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="Black" Foreground="White" FontSize="18" UseLayoutRounding="True">
+  <Border BorderBrush="{DynamicResource Accent}" BorderThickness="1" Padding="24">
+    <StackPanel>
+      <TextBlock x:Name="Prompt" Foreground="{DynamicResource Accent}" FontSize="30" TextAlignment="Center"/>
+      <Grid Margin="0,22,0,0" KeyboardNavigation.TabNavigation="Cycle">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="FirstChoice"/>
+        <Button x:Name="SecondChoice" Grid.Column="1"/>
+        <Button x:Name="ThirdChoice" Grid.Column="2"/>
+      </Grid>
+    </StackPanel>
+  </Border>
+</Window>

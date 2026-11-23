@@ -252,6 +252,7 @@ namespace LauncherBox {
         internal int Index;
         private readonly bool logon;
         private Editor editor;
+        private PowerMenu powerMenu;
         private DeviceInput devices;
         private Process running;
         private FileStream launchFileLock;
@@ -268,6 +269,7 @@ namespace LauncherBox {
             Find<Button>("StartGame").Click += delegate { RunGameFile(false); };
             Find<Button>("GameSetting").Click += delegate { RunGameFile(true); };
             Find<Button>("Manage").Click += delegate { Manage(); };
+            Find<Button>("Power").Click += delegate { OpenPowerMenu(); };
             Find<Button>("Manage").Visibility = logon ? Visibility.Collapsed : Visibility.Visible;
             Find<Button>("Manage").IsEnabled = false;
             Win.PreviewKeyDown += OnKey;
@@ -342,16 +344,19 @@ namespace LauncherBox {
         }
 
         private bool HasInputFocus() {
-            return Bindings != null && running == null && (editor == null ? Win.IsActive : editor.IsActive);
+            if (Bindings == null || running != null) return false;
+            if (powerMenu != null) return powerMenu.IsActive;
+            return editor == null ? Win.IsActive : editor.IsActive;
         }
 
         private bool RouteInput(InputSignal signal) {
             if (!HasInputFocus()) return false;
             if (editor != null) return editor.Capture(signal);
-            if (signal.Source == InputSource.Keyboard && HasButtonFocus() &&
+            if (powerMenu == null && signal.Source == InputSource.Keyboard && HasButtonFocus() &&
                 (signal.Code == Key.Enter.ToString() || signal.Code == Key.Space.ToString())) return false;
             InputBinding binding = Bindings.Match(signal);
             if (binding == null) return false;
+            if (powerMenu != null) return powerMenu.Handle(binding.Action);
             if (binding.Action == LauncherAction.Settings) Win.Dispatcher.BeginInvoke(new Action(Manage));
             else Act(binding.Action);
             return true;
@@ -365,6 +370,7 @@ namespace LauncherBox {
                 case LauncherAction.GameSetting: RunGameFile(true); break;
                 case LauncherAction.Settings: Manage(); break;
                 case LauncherAction.Fullscreen: Fullscreen(); break;
+                case LauncherAction.PowerMenu: Win.Dispatcher.BeginInvoke(new Action(OpenPowerMenu)); break;
                 case LauncherAction.Exit: Win.Close(); break;
             }
         }
@@ -405,6 +411,7 @@ namespace LauncherBox {
             Find<Button>("StartGame").IsEnabled = running == null && (ready || !logon);
             Find<Button>("GameSetting").Visibility = hasSetting ? Visibility.Visible : Visibility.Collapsed;
             Find<Button>("GameSetting").IsEnabled = running == null;
+            Find<Button>("Power").IsEnabled = running == null;
             Find<TextBlock>("Status").Text = notice ?? "";
             string art = game == null ? null : game.Art;
             if (art != displayedArt) ShowScreenshot(art);
@@ -425,15 +432,42 @@ namespace LauncherBox {
         }
 
         private void Manage() {
-            if (logon || editor != null || Bindings == null || running != null) return;
+            if (logon || editor != null || powerMenu != null || Bindings == null || running != null) return;
             editor = new Editor(this);
             try { editor.Show(); }
             finally { editor = null; }
             Draw(null);
         }
 
+        private async void OpenPowerMenu() {
+            if (closed || editor != null || powerMenu != null || running != null) return;
+            PowerAction? request;
+            powerMenu = new PowerMenu(Win);
+            if (devices != null) devices.ResetHeld();
+            try { request = powerMenu.Show(); }
+            finally { powerMenu = null; }
+            if (!request.HasValue || closed) return;
+            if (request.Value == PowerAction.Exit) { Win.Close(); return; }
+
+            try {
+                ProcessStartInfo info = PowerMenu.CreateCommand(request.Value);
+                Log.Info("Windows power request: " + request.Value);
+                await Task.Run(() => {
+                    using (Process process = Process.Start(info)) {
+                        string error = process.StandardError.ReadToEnd().Trim();
+                        process.WaitForExit();
+                        if (process.ExitCode != 0)
+                            throw new InvalidOperationException(error.Length > 0 ? error : "Windows returned exit code " + process.ExitCode + ".");
+                    }
+                });
+            } catch (Exception ex) {
+                Log.Error("Windows power request failed", ex);
+                if (!closed) MessageBox.Show(Win, ex.Message, "Power request failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private async void RunGameFile(bool settings) {
-            if (closed || running != null || editor != null || Bindings == null) return;
+            if (closed || running != null || editor != null || powerMenu != null || Bindings == null) return;
             if (Games.Count == 0) { if (!settings) Manage(); return; }
             Game game = Games[Index];
             if (settings && !game.HasGameSettings) return;

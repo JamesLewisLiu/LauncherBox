@@ -22,10 +22,10 @@ exit /b %RESULT%
   /win32manifest:app.manifest /win32icon:LauncherBox.ico /out:"%OUT%\LauncherBox.exe" ^
   /r:"%FX%\WPF\PresentationCore.dll" /r:"%FX%\WPF\PresentationFramework.dll" ^
   /r:"%FX%\WPF\WindowsBase.dll" /r:"%FX%\System.Xaml.dll" /r:"%FX%\Microsoft.CSharp.dll" ^
-  /resource:Main.xaml,Main.xaml /resource:Manager.xaml,Manager.xaml ^
+  /resource:Main.xaml,Main.xaml /resource:Manager.xaml,Manager.xaml /resource:Power.xaml,Power.xaml ^
   /resource:Theme.xaml,Theme.xaml /resource:LauncherBox.ico,LauncherBox.ico ^
   /resource:"%OUT%\LauncherBox.g.resources",LauncherBox.g.resources ^
-  Launcher.cs Input.cs DirectInput.cs MidiInput.cs Settings.cs Sqlite.cs Diagnostics.cs GamepadWorker.cs
+  Launcher.cs Input.cs DirectInput.cs MidiInput.cs Settings.cs Sqlite.cs Diagnostics.cs GamepadWorker.cs PowerMenu.cs
 if errorlevel 1 exit /b %ERRORLEVEL%
 copy /Y "fonts\OFL.txt" "%OUT%\VT323-LICENSE.txt" >nul
 exit /b %ERRORLEVEL%

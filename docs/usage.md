@@ -14,6 +14,8 @@ Click the game screenshot or use the **START** binding to launch the game. To ad
 
 **← / →** browse, **Enter** triggers **START**, and **F2** opens launcher settings by default. **F11** or **Alt+Enter** toggles fullscreen. **Esc** or **Alt+F4** exits from the library.
 
+Open the power menu with the top-left button or the **Power menu** binding. Use the previous and next bindings to select an option and **START** to activate it. The menu starts on **Exit LauncherBox**. **Shut down** and **Restart** open a confirmation that starts on **Cancel**.
+
 In **Settings → Controls**, select **Naive keyboard**, **DirectInput**, **XInput**, or **MIDI**, then select the binding next to an action and send an input. Naive keyboard reads Windows virtual keys while the launcher has focus. Each action has one binding per input type. Changes save immediately. **Esc** cancels capture, and **Clear** removes a binding. Leave sticks and pedals at rest when connecting a DirectInput device.
 
 MIDI supports note strikes, control-change values crossing 64, and pitch bends in either direction. A zero-velocity Note On is ignored. MIDI bindings include the port and channel. XInput bindings follow the controller slot.

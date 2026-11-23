@@ -117,6 +117,57 @@ try {
         throw 'The settings window must be borderless and retain a draggable header.'
     }
     $settings.Close()
+
+    $powerType = $assembly.GetType('LauncherBox.PowerMenu', $true)
+    $powerMenu = $powerType.GetConstructor($instance, $null, @($window.GetType()), $null).Invoke(@($window))
+    $powerWindow = $powerType.GetField('win', $instance).GetValue($powerMenu)
+    $choiceIndex = $powerType.GetField('selected', $instance)
+    $powerResult = $powerType.GetProperty('Result', $instance)
+    $handleAction = $powerType.GetMethod('Handle', $instance)
+    $actionEnum = $assembly.GetType('LauncherBox.LauncherAction', $true)
+    $left = [Enum]::Parse($actionEnum, 'Previous')
+    $right = [Enum]::Parse($actionEnum, 'Next')
+    $startAction = [Enum]::Parse($actionEnum, 'Play')
+    try {
+        $powerWindow.Show()
+        if ($null -eq $window.FindName('Power') -or $choiceIndex.GetValue($powerMenu) -ne 0 -or
+            $powerWindow.FindName('FirstChoice').Content -ne 'Exit LauncherBox') {
+            throw 'The power menu must start on Exit LauncherBox.'
+        }
+
+        [void]$handleAction.Invoke($powerMenu, @($right))
+        [void]$handleAction.Invoke($powerMenu, @($startAction))
+        if ($powerWindow.FindName('Prompt').Text -ne 'Shut down this PC?' -or $choiceIndex.GetValue($powerMenu) -ne 0 -or
+            $powerWindow.FindName('FirstChoice').Content -ne 'Cancel' -or $null -ne $powerResult.GetValue($powerMenu)) {
+            throw 'Shutdown must require a separate confirmation that starts on Cancel.'
+        }
+        [void]$handleAction.Invoke($powerMenu, @($startAction))
+        if ($powerWindow.FindName('FirstChoice').Content -ne 'Exit LauncherBox' -or $null -ne $powerResult.GetValue($powerMenu)) {
+            throw 'START on Cancel should return to the power menu.'
+        }
+
+        [void]$handleAction.Invoke($powerMenu, @($left))
+        [void]$handleAction.Invoke($powerMenu, @($startAction))
+        if ($powerWindow.FindName('Prompt').Text -ne 'Restart this PC?' -or $choiceIndex.GetValue($powerMenu) -ne 0 -or
+            $null -ne $powerResult.GetValue($powerMenu)) {
+            throw 'Restart must require a separate confirmation that starts on Cancel.'
+        }
+        [void]$handleAction.Invoke($powerMenu, @($right))
+        [void]$handleAction.Invoke($powerMenu, @($startAction))
+        if ([string]$powerResult.GetValue($powerMenu) -ne 'Restart') {
+            throw 'Selecting Restart and pressing START should return a restart request.'
+        }
+    } finally {
+        if ($powerWindow.IsVisible) { $powerWindow.Close() }
+    }
+    $powerEnum = $assembly.GetType('LauncherBox.PowerAction', $true)
+    $command = $powerType.GetMethod('CreateCommand', $static)
+    foreach ($item in @{ Shutdown = '/s /t 0'; Restart = '/r /t 0' }.GetEnumerator()) {
+        $info = $command.Invoke($null, @([Enum]::Parse($powerEnum, $item.Key)))
+        if ([IO.Path]::GetFileName($info.FileName) -ne 'shutdown.exe' -or $info.Arguments -ne $item.Value) {
+            throw "Unexpected Windows command for $($item.Key)."
+        }
+    }
 } finally {
     $lock.Dispose()
     $window.Close()
@@ -414,10 +465,17 @@ $midi = [Enum]::Parse($assembly.GetType('LauncherBox.InputSource', $true), 'Midi
 $signalType = $assembly.GetType('LauncherBox.InputSignal', $true)
 $signal = [Activator]::CreateInstance($signalType, $instance, $null, @($midi, 'test-port', '1:note:60', 'Test Port · Note 60'), $null)
 $mapType.GetMethod('Set', $instance).Invoke($map, @($play, $midi, $signal))
+$powerAction = [Enum]::Parse($assembly.GetType('LauncherBox.LauncherAction', $true), 'PowerMenu')
+$powerSignal = [Activator]::CreateInstance($signalType, $instance, $null, @($midi, 'test-port', '1:note:61', 'Test Port Note 61'), $null)
+$mapType.GetMethod('Set', $instance).Invoke($map, @($powerAction, $midi, $powerSignal))
 $reloaded = [Activator]::CreateInstance($mapType, $true)
 $match = $mapType.GetMethod('Match', $instance).Invoke($reloaded, @($signal))
 if ($null -eq $match -or $match.Action -ne $play) {
     throw 'The SQLite control binding did not round trip.'
+}
+if ($mapType.GetField('Actions', $static).GetValue($null) -notcontains $powerAction -or
+    $mapType.GetMethod('Match', $instance).Invoke($reloaded, @($powerSignal)).Action -ne $powerAction) {
+    throw 'The Power menu binding must be shown and persisted.'
 }
 
 Move-Item $dbPath (Join-Path $portable 'fresh.db')

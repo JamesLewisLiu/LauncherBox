@@ -11,6 +11,10 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
+    <Button x:Name="Power" HorizontalAlignment="Left" Width="48" Height="48"
+            ToolTip="Power menu" AutomationProperties.Name="Power menu">
+      <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="25" Text="&#xE7E8;"/>
+    </Button>
     <Button x:Name="Manage" HorizontalAlignment="Right" Width="48" Height="48"
             ToolTip="Settings (F2 by default)" AutomationProperties.Name="Settings">
       <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="25" Text="&#xE713;" />
