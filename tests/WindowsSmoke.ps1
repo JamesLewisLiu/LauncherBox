@@ -192,6 +192,18 @@ try {
     $editorWindow = $editorType.GetField('win', $instance).GetValue($editor)
     $arguments = '1 "Band & Stage" "literal %TEMP%" "!LIVE!"'
     try {
+        $editorWindow.Show()
+        $editorWindow.UpdateLayout()
+        $editorBounds = New-Object 'WindowBounds+Rect'
+        $ownerBounds = New-Object 'WindowBounds+Rect'
+        $editorHandle = [System.Windows.Interop.WindowInteropHelper]::new($editorWindow).Handle
+        $ownerHandle = [System.Windows.Interop.WindowInteropHelper]::new($keyboardWindow).Handle
+        if ($editorWindow.WindowState -ne 'Maximized' -or
+            ![WindowBounds]::GetWindowRect($editorHandle, [ref]$editorBounds) -or
+            ![WindowBounds]::GetWindowRect($ownerHandle, [ref]$ownerBounds) -or
+            !$editorBounds.Equals($ownerBounds) -or $editorWindow.FindName('GameFields').ScrollableHeight -gt 0.5) {
+            throw 'Fullscreen settings must cover the launcher and show all game fields without scrolling.'
+        }
         $editorWindow.FindName('SettingsBatBox').Text = $settingBat
         $editorWindow.FindName('LaunchArgumentsBox').Text = $arguments
         $editorType.GetMethod('Save', $instance).Invoke($editor, $null)
@@ -253,6 +265,31 @@ try {
     $next = $keyboardWindow.FindName('Next')
     $next.RaiseEvent([System.Windows.RoutedEventArgs]::new($click, $next))
     $fullscreen.Invoke($keyboardLauncher, $null)
+    $windowedEditor = $editorType.GetConstructor($instance, $null, @($launcherType), $null).Invoke(@($keyboardLauncher))
+    $windowedSettings = $editorType.GetField('win', $instance).GetValue($windowedEditor)
+    try {
+        if ($windowedSettings.Width -ne $keyboardWindow.ActualWidth -or
+            $windowedSettings.Height -ne $keyboardWindow.ActualHeight -or $windowedSettings.WindowState -ne 'Normal') {
+            throw 'Windowed settings must open at the size of the launcher.'
+        }
+        $windowedSettings.Show()
+        $windowedSettings.UpdateLayout()
+        $viewport = $windowedSettings.FindName('SettingsViewport')
+        $scaleProbe = [System.Windows.Rect]::new(0, 0, 100, 100)
+        $initial = $viewport.Child.TransformToAncestor($viewport).TransformBounds($scaleProbe)
+        $windowedSettings.Width *= 0.75
+        $windowedSettings.Height *= 0.75
+        Wait-ForWindow {
+            $windowedSettings.UpdateLayout()
+            $resized = $viewport.Child.TransformToAncestor($viewport).TransformBounds($scaleProbe)
+            $resized.Width -lt $initial.Width -and [Math]::Abs($resized.Width - $resized.Height) -lt 0.01
+        } 'the settings layout to scale uniformly'
+        if ($windowedSettings.FindName('GameFields').ScrollableHeight -gt 0.5) {
+            throw 'Shrinking the settings window clipped the game fields.'
+        }
+    } finally {
+        $windowedSettings.Close()
+    }
     $keyboardWindow.Activate() | Out-Null
     Wait-ForWindow { $keyboardWindow.IsActive } 'keyboard focus after returning to the launcher'
     $keyboardSignal = $signalForKey.Invoke($null, @([System.Windows.Input.Key]::Enter))

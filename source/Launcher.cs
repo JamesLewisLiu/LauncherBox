@@ -19,6 +19,7 @@ using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shell;
 using Microsoft.Win32;
 
 namespace LauncherBox {
@@ -488,7 +489,19 @@ namespace LauncherBox {
         private T Find<T>(string id) where T : class { return (T)win.FindName(id); }
         internal Editor(Launcher owner) {
             launcher = owner;
-            win.Owner = owner.Win;
+            Window mainWindow = owner.Win;
+            win.Owner = mainWindow;
+            win.MinWidth = mainWindow.MinWidth;
+            win.MinHeight = mainWindow.MinHeight;
+            win.Width = mainWindow.ActualWidth;
+            win.Height = mainWindow.ActualHeight;
+            if (mainWindow.WindowState == WindowState.Maximized) {
+                if (mainWindow.ResizeMode == ResizeMode.NoResize) {
+                    WindowChrome.SetWindowChrome(win, null);
+                    win.ResizeMode = ResizeMode.NoResize;
+                }
+                win.WindowState = WindowState.Maximized;
+            }
             list = Find<ListBox>("Entries");
             list.SelectionChanged += delegate {
                 if (binding) return;

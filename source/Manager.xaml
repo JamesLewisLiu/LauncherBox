@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Settings" Width="780" Height="550" MinWidth="600" MinHeight="520"
+        Title="Settings"
         WindowStyle="None"
         WindowStartupLocation="CenterOwner" Background="Black" Foreground="White" FontSize="18">
   <shell:WindowChrome.WindowChrome>
@@ -17,87 +17,89 @@
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
   </Window.Resources>
-  <Grid Margin="24">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-    <TextBlock Text="Settings" Foreground="{DynamicResource Accent}" FontSize="34"/>
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,10">
-      <Button x:Name="GamesTab" Content="Games"/>
-      <Button x:Name="ControlsTab" Content="Controls"/>
-    </StackPanel>
+  <Viewbox x:Name="SettingsViewport" Stretch="Uniform">
+    <Grid Width="1056" Height="656" Margin="24">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+      <TextBlock Text="Settings" Foreground="{DynamicResource Accent}" FontSize="34"/>
+      <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,10">
+        <Button x:Name="GamesTab" Content="Games"/>
+        <Button x:Name="ControlsTab" Content="Controls"/>
+      </StackPanel>
 
-    <Grid x:Name="GamesPane" Grid.Row="2">
-      <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="195"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <DockPanel Margin="0,0,18,0">
-          <UniformGrid DockPanel.Dock="Bottom" Rows="1">
-            <Button x:Name="Add" Content="Add"/>
-            <Button x:Name="Remove" Content="Remove"/>
-          </UniformGrid>
-          <ListBox x:Name="Entries" DisplayMemberPath="Name" Padding="4"
-                   Background="Black" Foreground="White" BorderThickness="0"
-                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
-        </DockPanel>
-        <DockPanel Grid.Column="1">
-          <Button x:Name="Save" DockPanel.Dock="Bottom" Content="Save Game" HorizontalAlignment="Right"/>
-          <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-            <StackPanel>
-              <TextBlock Text="Game name"/>
-              <TextBox x:Name="TitleBox" Margin="0,5,0,10" MaxLength="80"/>
-              <TextBlock Text="Launch BAT"/>
-              <DockPanel Margin="0,5,0,10">
-                <Button x:Name="BrowseBat" DockPanel.Dock="Right" Content="Browse"/>
-                <TextBox x:Name="BatBox" IsReadOnly="True"/>
-              </DockPanel>
-              <TextBlock Text="Launch arguments (optional)"/>
-              <TextBox x:Name="LaunchArgumentsBox" Margin="0,5,0,10" MaxLength="2048"
-                       AutomationProperties.Name="Launch arguments"
-                       ToolTip="Arguments passed to Launch BAT, such as 0 or &quot;My game&quot;."/>
-              <TextBlock Text="Setting BAT (optional)"/>
-              <DockPanel Margin="0,5,0,10">
-                <Button x:Name="ClearSettingsBat" DockPanel.Dock="Right" Content="Clear"/>
-                <Button x:Name="BrowseSettingsBat" DockPanel.Dock="Right" Content="Browse"/>
-                <TextBox x:Name="SettingsBatBox" IsReadOnly="True"/>
-              </DockPanel>
-              <TextBlock Text="Screenshot (optional)"/>
-              <DockPanel Margin="0,5,0,8">
-                <Button x:Name="BrowseCover" DockPanel.Dock="Right" Content="Browse"/>
-                <TextBox x:Name="ImageBox" IsReadOnly="True"/>
-              </DockPanel>
-            </StackPanel>
-          </ScrollViewer>
+      <Grid x:Name="GamesPane" Grid.Row="2">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="195"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <DockPanel Margin="0,0,18,0">
+            <UniformGrid DockPanel.Dock="Bottom" Rows="1">
+              <Button x:Name="Add" Content="Add"/>
+              <Button x:Name="Remove" Content="Remove"/>
+            </UniformGrid>
+            <ListBox x:Name="Entries" DisplayMemberPath="Name" Padding="4"
+                     Background="Black" Foreground="White" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+          </DockPanel>
+          <DockPanel Grid.Column="1">
+            <Button x:Name="Save" DockPanel.Dock="Bottom" Content="Save Game" HorizontalAlignment="Right"/>
+            <ScrollViewer x:Name="GameFields" VerticalScrollBarVisibility="Auto" Focusable="False">
+              <StackPanel>
+                <TextBlock Text="Game name"/>
+                <TextBox x:Name="TitleBox" Margin="0,5,0,10" MaxLength="80"/>
+                <TextBlock Text="Launch BAT"/>
+                <DockPanel Margin="0,5,0,10">
+                  <Button x:Name="BrowseBat" DockPanel.Dock="Right" Content="Browse"/>
+                  <TextBox x:Name="BatBox" IsReadOnly="True"/>
+                </DockPanel>
+                <TextBlock Text="Launch arguments (optional)"/>
+                <TextBox x:Name="LaunchArgumentsBox" Margin="0,5,0,10" MaxLength="2048"
+                         AutomationProperties.Name="Launch arguments"
+                         ToolTip="Arguments passed to Launch BAT, such as 0 or &quot;My game&quot;."/>
+                <TextBlock Text="Setting BAT (optional)"/>
+                <DockPanel Margin="0,5,0,10">
+                  <Button x:Name="ClearSettingsBat" DockPanel.Dock="Right" Content="Clear"/>
+                  <Button x:Name="BrowseSettingsBat" DockPanel.Dock="Right" Content="Browse"/>
+                  <TextBox x:Name="SettingsBatBox" IsReadOnly="True"/>
+                </DockPanel>
+                <TextBlock Text="Screenshot (optional)"/>
+                <DockPanel Margin="0,5,0,8">
+                  <Button x:Name="BrowseCover" DockPanel.Dock="Right" Content="Browse"/>
+                  <TextBox x:Name="ImageBox" IsReadOnly="True"/>
+                </DockPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </DockPanel>
+        </Grid>
+        <DockPanel Grid.Row="1" Margin="0,12,0,0">
+          <Button x:Name="ToggleAuto" DockPanel.Dock="Right"/>
+          <StackPanel>
+            <TextBlock Text="Start at sign-in" FontWeight="SemiBold"/>
+            <TextBlock x:Name="AutoState" Foreground="#A8A8A8" TextWrapping="Wrap"/>
+          </StackPanel>
         </DockPanel>
       </Grid>
-      <DockPanel Grid.Row="1" Margin="0,12,0,0">
-        <Button x:Name="ToggleAuto" DockPanel.Dock="Right"/>
-        <StackPanel>
-          <TextBlock Text="Start at sign-in" FontWeight="SemiBold"/>
-          <TextBlock x:Name="AutoState" Foreground="#A8A8A8" TextWrapping="Wrap"/>
-        </StackPanel>
-      </DockPanel>
-    </Grid>
 
-    <Grid x:Name="ControlsPane" Grid.Row="2" Visibility="Collapsed">
-      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <StackPanel Orientation="Horizontal">
-        <Button x:Name="KeyboardSource" Content="Naive keyboard"/>
-        <Button x:Name="DirectInputSource" Content="DirectInput"/>
-        <Button x:Name="XInputSource" Content="XInput"/>
-        <Button x:Name="MidiSource" Content="MIDI"/>
-      </StackPanel>
-      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False">
-        <StackPanel x:Name="BindingRows"/>
-      </ScrollViewer>
-      <DockPanel Grid.Row="2">
-        <Button x:Name="ResetBindings" DockPanel.Dock="Right" Content="Reset Defaults"/>
-        <TextBlock x:Name="BindingStatus" Foreground="#A8A8A8" TextWrapping="Wrap" VerticalAlignment="Center"/>
-      </DockPanel>
+      <Grid x:Name="ControlsPane" Grid.Row="2" Visibility="Collapsed">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal">
+          <Button x:Name="KeyboardSource" Content="Naive keyboard"/>
+          <Button x:Name="DirectInputSource" Content="DirectInput"/>
+          <Button x:Name="XInputSource" Content="XInput"/>
+          <Button x:Name="MidiSource" Content="MIDI"/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False">
+          <StackPanel x:Name="BindingRows"/>
+        </ScrollViewer>
+        <DockPanel Grid.Row="2">
+          <Button x:Name="ResetBindings" DockPanel.Dock="Right" Content="Reset Defaults"/>
+          <TextBlock x:Name="BindingStatus" Foreground="#A8A8A8" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        </DockPanel>
+      </Grid>
+      <Button x:Name="Done" Grid.Row="3" Content="Done" HorizontalAlignment="Right" Margin="0,10,0,0"/>
     </Grid>
-    <Button x:Name="Done" Grid.Row="3" Content="Done" HorizontalAlignment="Right" Margin="0,10,0,0"/>
-  </Grid>
+  </Viewbox>
 </Window>
