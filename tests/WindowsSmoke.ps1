@@ -112,6 +112,10 @@ try {
     if ($null -eq $settings.FindName('ControlsPane') -or $null -eq $settings.FindResource('Accent')) {
         throw 'The settings layout and shared theme did not load.'
     }
+    $settingsChrome = [System.Windows.Shell.WindowChrome]::GetWindowChrome($settings)
+    if ($settings.WindowStyle -ne 'None' -or $null -eq $settingsChrome -or $settingsChrome.CaptionHeight -le 0) {
+        throw 'The settings window must be borderless and retain a draggable header.'
+    }
     $settings.Close()
 } finally {
     $lock.Dispose()
